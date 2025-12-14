@@ -58,6 +58,7 @@ fn config_bool(key: &str) -> bool {
     }
 }
 
+#[allow(dead_code)]
 fn config_string(key: &str) -> Option<String> {
     match CONFIG.get(key).cloned() {
         Some(ConfigValue::String(v)) => Some(v),
@@ -67,6 +68,7 @@ fn config_string(key: &str) -> Option<String> {
 
 #[derive(Debug, Clone)]
 #[allow(non_camel_case_types)]
+#[allow(dead_code)]
 enum ConfigValue {
     String(String),
     bool(bool),

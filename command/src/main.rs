@@ -14,7 +14,7 @@ use std::{
     ffi::OsStr,
     fs,
     path::{Path, PathBuf},
-    process::exit,
+    process::{exit, Command as ProcessCommand},
     time::SystemTime,
 };
 use structopt::{clap::arg_enum, StructOpt};
@@ -792,6 +792,7 @@ async fn run_debugger(
     output: Option<String>,
     firedbg_home: Option<String>,
 ) -> Result<()> {
+    let lldb_paths = detect_lldb_paths();
     let workspace_root_dir = &workspace.root_dir;
     let workspace_output_dir = workspace.get_firedbg_target_dir();
     let timestamp = SystemTime::now()
@@ -820,6 +821,33 @@ async fn run_debugger(
         }
         command
     };
+
+    if let Some(paths) = &lldb_paths {
+        log::info!(
+            "Using LLDB `{}` with PYTHONPATH `{}`",
+            paths.binary,
+            paths.python_dir.display()
+        );
+
+        if let Some(debugserver) = &paths.debugserver {
+            log::info!("Using lldb-server `{debugserver}`");
+            command.env("LLDB_DEBUGSERVER_PATH", debugserver);
+        } else {
+            log::warn!("No lldb-server found alongside `{}`", paths.binary);
+        }
+
+        let python_path = match env::var_os("PYTHONPATH") {
+            Some(existing) => format!(
+                "{}:{}",
+                paths.python_dir.display(),
+                existing.to_string_lossy()
+            ),
+            None => paths.python_dir.display().to_string(),
+        };
+        command.env("PYTHONPATH", python_path);
+    } else {
+        log::warn!("Unable to detect LLDB runtime paths; using system defaults");
+    }
     command.arg(sub_command).arg(executable);
 
     if let Some(testcase) = testcase {
@@ -937,7 +965,7 @@ async fn list_target(
         Vec::new()
     };
 
-    fn handle_tests<'a>((package, test): &'a (&'a Package, Option<&'a Test>)) -> TestType {
+    fn handle_tests<'a>((package, test): &'a (&'a Package, Option<&'a Test>)) -> TestType<'a> {
         if let Some(test) = test {
             let test_cases = test
                 .get_testcases(package)
@@ -1074,6 +1102,76 @@ fn path_to_str(path: &Path) -> &str {
 
 fn os_str_to_str(os_str: &OsStr) -> &str {
     os_str.to_str().expect("Failed to convert OsStr to &str")
+}
+
+#[derive(Debug)]
+struct LldbPaths {
+    binary: String,
+    python_dir: PathBuf,
+    debugserver: Option<String>,
+}
+
+fn detect_lldb_paths() -> Option<LldbPaths> {
+    let versions = ["20", "19", "18", "17", "16", "15", "14"];
+    let commands: Vec<_> = versions
+        .iter()
+        .map(|v| format!("lldb-{v}"))
+        .chain(["lldb".to_string()].into_iter())
+        .collect();
+
+    for binary in commands {
+        let Ok(output) = ProcessCommand::new(&binary).arg("-P").output() else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+
+        let python_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if python_dir.is_empty() {
+            continue;
+        }
+
+        let python_dir = PathBuf::from(&python_dir);
+        let bin_dir = python_dir
+            .ancestors()
+            .nth(3)
+            .map(|prefix| prefix.join("bin"))
+            .unwrap_or_else(|| python_dir.join("../../../bin"));
+        let bin_dir = fs::canonicalize(&bin_dir).unwrap_or(bin_dir);
+        let debugserver = find_debugserver(&bin_dir);
+
+        return Some(LldbPaths {
+            binary,
+            python_dir,
+            debugserver,
+        });
+    }
+
+    None
+}
+
+fn find_debugserver(bin_dir: &Path) -> Option<String> {
+    let mut candidates: Vec<_> = fs::read_dir(bin_dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(OsStr::to_str)
+                    .map(|name| name.starts_with("lldb-server"))
+                    .unwrap_or(false)
+        })
+        .collect();
+
+    candidates.sort();
+    candidates.reverse();
+    candidates
+        .into_iter()
+        .next()
+        .map(|path| path.display().to_string())
 }
 
 fn cargo_bin() -> Result<String> {

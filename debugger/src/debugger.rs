@@ -39,10 +39,9 @@ use std::{
     time::SystemTime,
 };
 
-static mut SB_TARGET: Option<SBTarget> = None;
-static mut SB_PROCESS: Option<SBProcess> = None;
-
 lazy_static::lazy_static! {
+    static ref SB_TARGET: Mutex<Option<Arc<SBTarget>>> = Mutex::new(None);
+    static ref SB_PROCESS: Mutex<Option<Arc<SBProcess>>> = Mutex::new(None);
     static ref ENUM_CACHE: Mutex<FxHashMap<SBTypeId, Option<Arc<UnionType>>>> = Mutex::new(Default::default());
     static ref TYPE_CACHE: Mutex<FxHashMap<String, Option<SBType>>> = Mutex::new(Default::default());
 }
@@ -156,10 +155,11 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
     let sb_target = sb_debugger
         .create_target(path, None, None, false)
         .with_context(|| format!("Fail to create target: `{}`", path.display()))?;
-    let sb_target = unsafe {
-        SB_TARGET = Some(sb_target);
-        SB_TARGET.as_ref().expect("Always")
-    };
+    let sb_target = Arc::new(sb_target);
+    {
+        let mut target_slot = SB_TARGET.lock().expect("SB_TARGET lock poisoned");
+        *target_slot = Some(Arc::clone(&sb_target));
+    }
     log::debug!("{:?}", sb_target);
 
     let target_basename = match producer.get_file() {
@@ -486,7 +486,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                                 // create breakpoint of type `FunctionReturn`
                                 let addr = parse_addr(line)?;
                                 log::debug!("Set breakpoint {}", breakpoints.len());
-                                let sb_addr = SBAddress::from_load_address(addr, sb_target);
+                                let sb_addr = SBAddress::from_load_address(addr, &sb_target);
                                 let sb_bp = sb_target.breakpoint_create_by_address(&sb_addr);
                                 log::debug!("{:#?}", sb_bp);
                                 let sb_bp_loc = sb_bp.location_at_index(0);
@@ -587,7 +587,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                                             if !breakpoint_addresses.contains_key(&addr) {
                                                 log::debug!("Set breakpoint {}", breakpoints.len());
                                                 let sb_addr =
-                                                    SBAddress::from_load_address(addr, sb_target);
+                                                    SBAddress::from_load_address(addr, &sb_target);
                                                 let sb_bp = sb_target
                                                     .breakpoint_create_by_address(&sb_addr);
                                                 log::debug!("{:#?}", sb_bp);
@@ -684,7 +684,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                         if addr.is_none() {
                             continue;
                         }
-                        let addr = addr.unwrap().load_address(sb_target);
+                        let addr = addr.unwrap().load_address(&sb_target);
                         if let Some(ty_name) = allocation.remove(&addr) {
                             #[cfg(debug_assertions)]
                             {
@@ -788,8 +788,8 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
             if write_return_value(
                 &mut event,
                 rwriter,
-                sb_target,
-                sb_process,
+                &sb_target,
+                &sb_process,
                 &sb_frame,
                 fn_cache.get(&last_frame.function_id).expect("Cached"),
             )
@@ -810,10 +810,11 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
         .debugger_launch
         .time(|| sb_target.launch_redirected(stdout_path, stderr_path, params.arguments))
         .context("Fail to launch debugger")?;
-    let sb_process = unsafe {
-        SB_PROCESS = Some(sb_process);
-        SB_PROCESS.as_ref().expect("Some")
-    };
+    let sb_process = Arc::new(sb_process);
+    {
+        let mut process_slot = SB_PROCESS.lock().expect("SB_PROCESS lock poisoned");
+        *process_slot = Some(Arc::clone(&sb_process));
+    }
 
     let t_debugger_run = process_timer.debugger_run.span();
 
@@ -845,7 +846,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
             log::debug!("Stop at Breakpoint {breakpoint_id:?}");
             let selected_thread_id = sb_thread.thread_id();
             let bp_addrs = &mut breakpoint_addresses;
-            handle_breakpoint(bp_addrs, sb_process, sb_thread, breakpoint_id)
+            handle_breakpoint(bp_addrs, &sb_process, sb_thread, breakpoint_id)
                 .context("Fail to handle breakpoint")?;
 
             // handle other threads
@@ -860,7 +861,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                 if let Some(bp_id) = breakpoint_addresses.get(&pc_file_address).copied() {
                     log::debug!("Handle extra breakpoint for {bp_id:?}");
                     let bp_addrs = &mut breakpoint_addresses;
-                    handle_breakpoint(bp_addrs, sb_process, sb_thread, bp_id)
+                    handle_breakpoint(bp_addrs, &sb_process, sb_thread, bp_id)
                         .context("Fail to handle breakpoint")?;
                 }
             }
@@ -899,10 +900,14 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
         process_timer.global
     );
 
-    unsafe {
-        SB_PROCESS = None;
-        SB_TARGET = None;
-    }
+    SB_PROCESS
+        .lock()
+        .expect("SB_PROCESS lock poisoned")
+        .take();
+    SB_TARGET
+        .lock()
+        .expect("SB_TARGET lock poisoned")
+        .take();
 
     Ok(())
 }
@@ -954,7 +959,10 @@ pub(crate) fn get_union_type(ty: &SBType) -> Option<Arc<UnionType>> {
 }
 
 pub(crate) fn get_sb_type(name: &str) -> Option<SBType> {
-    let sb_target = unsafe { SB_TARGET.as_ref().expect("Always") };
+    let sb_target_guard = SB_TARGET
+        .lock()
+        .expect("SB_TARGET lock poisoned");
+    let sb_target = sb_target_guard.as_ref().expect("Always");
     let mut cache = TYPE_CACHE
         .try_lock()
         .expect("There should be no concurrent access");
@@ -979,7 +987,10 @@ pub(crate) fn sb_value_from_addr(
     addr: u64,
     sb_type: &SBType,
 ) -> Result<SBValue, WriteErr> {
-    let sb_target = unsafe { SB_TARGET.as_ref().expect("Always") };
+    let sb_target_guard = SB_TARGET
+        .lock()
+        .expect("SB_TARGET lock poisoned");
+    let sb_target = sb_target_guard.as_ref().expect("Always");
     let addr = SBAddress::from_load_address(addr, sb_target);
     let value = sb_target.create_value_from_address(name, &addr, sb_type);
     if value.is_valid() {
@@ -994,7 +1005,10 @@ pub(crate) fn sb_value_from_data(
     data: &[u64],
     sb_type: &SBType,
 ) -> Result<SBValue, WriteErr> {
-    let sb_target = unsafe { SB_TARGET.as_ref().expect("Always") };
+    let sb_target_guard = SB_TARGET
+        .lock()
+        .expect("SB_TARGET lock poisoned");
+    let sb_target = sb_target_guard.as_ref().expect("Always");
     let sb_data = SBData::from_u64(
         data,
         sb_target.byte_order(),
@@ -1012,7 +1026,10 @@ pub(crate) fn sb_value_from_data(
 }
 
 pub(crate) fn read_process_memory(addr: u64, len: usize) -> Result<Vec<u8>, WriteErr> {
-    let sb_process = unsafe { SB_PROCESS.as_ref().expect("Some") };
+    let sb_process_guard = SB_PROCESS
+        .lock()
+        .expect("SB_PROCESS lock poisoned");
+    let sb_process = sb_process_guard.as_ref().expect("Some");
     let mut buf = vec![0u8; len];
     sb_process
         .read_memory(addr, &mut buf)
