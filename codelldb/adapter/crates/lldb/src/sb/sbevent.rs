@@ -25,7 +25,7 @@ impl SBEvent {
             return self->GetType();
         })
     }
-    pub fn as_process_event(&self) -> Option<SBProcessEvent> {
+    pub fn as_process_event(&self) -> Option<SBProcessEvent<'_>> {
         if cpp!(unsafe [self as "SBEvent*"] -> bool as "bool" {
             return SBProcess::EventIsProcessEvent(*self);
         }) {
@@ -34,7 +34,7 @@ impl SBEvent {
             None
         }
     }
-    pub fn as_breakpoint_event(&self) -> Option<SBBreakpointEvent> {
+    pub fn as_breakpoint_event(&self) -> Option<SBBreakpointEvent<'_>> {
         if cpp!(unsafe [self as "SBEvent*"] -> bool as "bool" {
             return SBBreakpoint::EventIsBreakpointEvent(*self);
         }) {
@@ -43,7 +43,7 @@ impl SBEvent {
             None
         }
     }
-    pub fn as_watchpoint_event(&self) -> Option<SBWatchpointEvent> {
+    pub fn as_watchpoint_event(&self) -> Option<SBWatchpointEvent<'_>> {
         if cpp!(unsafe [self as "SBEvent*"] -> bool as "bool" {
             return SBWatchpoint::EventIsWatchpointEvent(*self);
         }) {
@@ -52,7 +52,7 @@ impl SBEvent {
             None
         }
     }
-    pub fn as_target_event(&self) -> Option<SBTargetEvent> {
+    pub fn as_target_event(&self) -> Option<SBTargetEvent<'_>> {
         if cpp!(unsafe [self as "SBEvent*"] -> bool as "bool" {
             return SBTarget::EventIsTargetEvent(*self);
         }) {
@@ -61,7 +61,7 @@ impl SBEvent {
             None
         }
     }
-    pub fn as_thread_event(&self) -> Option<SBThreadEvent> {
+    pub fn as_thread_event(&self) -> Option<SBThreadEvent<'_>> {
         if cpp!(unsafe [self as "SBEvent*"] -> bool as "bool" {
             return SBThread::EventIsThreadEvent(*self);
         }) {

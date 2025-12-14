@@ -23,8 +23,18 @@ fn main() -> Result<(), Error> {
         if target_os == "windows" {
             println!("cargo:rustc-link-lib=dylib=liblldb");
         } else {
-            build_config.cpp_set_stdlib(Some("c++"));
-            println!("cargo:rustc-link-lib=dylib=lldb");
+            // gcc does not recognize the "-stdlib=libc++" flag used by clang. Explicitly
+            // request libc++ only on platforms where clang is expected (e.g. macOS) and let
+            // Linux use the toolchain default to remain compatible with newer Rust images
+            // that default to gcc. This keeps the build working without requiring a clang
+            // toolchain to be installed.
+            if target_os != "linux" {
+                build_config.cpp_set_stdlib(Some("c++"));
+            }
+
+            let liblldb = detect_liblldb_library().unwrap_or_else(|| "lldb".to_string());
+            println!("cargo:rustc-link-lib=dylib={}", liblldb);
+
             if target_os == "linux" {
                 // Require all symbols to be defined in test runners
                 println!("cargo:rustc-link-arg=--no-undefined");
@@ -57,6 +67,65 @@ fn set_rustc_link_search() {
             println!("cargo:rustc-link-search=native={}", path);
         }
     }
+}
+
+fn detect_liblldb_library() -> Option<String> {
+    // Prefer user-provided locations first
+    let mut search_dirs: Vec<String> = env::var("CODELLDB_LIB_PATH")
+        .unwrap_or_default()
+        .split_terminator(';')
+        .map(|s| s.to_string())
+        .collect();
+
+    search_dirs.extend([
+        "/usr/lib/llvm-20/lib".to_string(),
+        "/usr/lib/llvm-19/lib".to_string(),
+        "/usr/lib/llvm-18/lib".to_string(),
+        "/usr/lib/llvm-17/lib".to_string(),
+        "/usr/lib/llvm-16/lib".to_string(),
+        "/usr/lib/x86_64-linux-gnu".to_string(),
+        "/usr/lib".to_string(),
+    ]);
+
+    for dir in search_dirs {
+        let path = Path::new(&dir);
+        if !path.exists() {
+            continue;
+        }
+
+        let versioned = ["20", "19", "18", "17", "16", "15", "14"];
+        let candidates = std::iter::once("liblldb.so".to_string()).chain(
+            versioned
+                .iter()
+                .flat_map(|v| [format!("liblldb-{v}.so"), format!("liblldb-{v}.so.1")]),
+        );
+
+        for candidate in candidates {
+            if path.join(&candidate).exists() {
+                println!("cargo:rustc-link-search=native={}", path.display());
+
+                if let Some(version) = candidate
+                    .strip_prefix("liblldb-")
+                    .and_then(|rest| rest.strip_prefix("lldb-").or(Some(rest)))
+                {
+                    if let Some(version) = version.split_once('.') {
+                        return Some(format!("lldb-{}", version.0.trim_start_matches('v')));
+                    }
+                }
+
+                if let Some(version) = candidate
+                    .strip_prefix("liblldb-")
+                    .and_then(|rest| rest.strip_suffix(".so"))
+                {
+                    return Some(version.to_string());
+                }
+
+                return Some("lldb".to_string());
+            }
+        }
+    }
+
+    None
 }
 
 fn set_dylib_search_path() {
