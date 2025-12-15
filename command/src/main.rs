@@ -668,6 +668,7 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
         installed: BTreeMap<String, bool>,
         lldb: Option<LldbReport>,
         code: Option<CommandReport>,
+        hints: Vec<String>,
     }
 
     #[derive(Debug, Serialize)]
@@ -705,6 +706,12 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
     let cargo_bin = cargo_bin().ok();
     let using_cargo_run = env::var("CARGO_PKG_NAME").is_ok();
 
+    let mut hints: Vec<String> = Vec::new();
+
+    if rustc.is_none() || cargo.is_none() {
+        hints.push("Install Rust via rustup (ensures both `rustc` and `cargo` are on PATH)".to_string());
+    }
+
     let (mode, home) = if using_cargo_run {
         ("cargo-run".to_string(), None)
     } else {
@@ -722,6 +729,12 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
             "firedbg-lib".to_string(),
             Path::new(&format!("{home}/firedbg-lib")).exists(),
         );
+
+        if installed.values().any(|v| !*v) {
+            hints.push("Run the installer from a FireDBG checkout: `./install.sh` (source build)".to_string());
+        }
+    } else {
+        hints.push("If you intended to use installed binaries, install them into your cargo bin dir (default: `~/.cargo/bin`)".to_string());
     }
 
     let code_version = cmd_version("code", &["--version"]);
@@ -730,11 +743,34 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
         version: code_version,
     };
 
+    if !code.present {
+        hints.push(
+            "VS Code: Command Palette → `Shell Command: Install 'code' command in PATH`".to_string(),
+        );
+    }
+
     let lldb = detect_lldb_paths().map(|p| LldbReport {
         binary: p.binary,
         python_dir: p.python_dir.display().to_string(),
         debugserver: p.debugserver,
     });
+
+    match &lldb {
+        Some(p) if p.debugserver.is_none() => {
+            if cfg!(target_os = "macos") {
+                hints.push("macOS: install Xcode Command Line Tools (`xcode-select --install`) or full Xcode so `lldb-server`/`debugserver` is available".to_string());
+            }
+        }
+        None => {
+            if cfg!(target_os = "macos") {
+                hints.push("macOS: install Xcode Command Line Tools (`xcode-select --install`) and ensure `lldb` is on PATH".to_string());
+                hints.push("macOS (Homebrew): `brew install llvm` then add the llvm bin dir to PATH so `lldb -P` works".to_string());
+            } else if cfg!(target_os = "linux") {
+                hints.push("Linux: install LLDB (package name varies; e.g. `lldb` / `llvm`)".to_string());
+            }
+        }
+        _ => {}
+    }
 
     let report = DoctorReport {
         workspace_root: workspace.root_dir.clone(),
@@ -746,6 +782,7 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
         installed,
         lldb,
         code: Some(code),
+        hints,
     };
 
     if json_format {
@@ -804,6 +841,13 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
             console::status("code", code.version.as_deref().unwrap_or("present"));
         } else {
             console::warn("code", "not found (VS Code CLI)");
+        }
+    }
+
+    if !report.hints.is_empty() {
+        console::status("Hints", "Potential fixes:");
+        for hint in report.hints.iter() {
+            console::warn("Hint", hint);
         }
     }
 
