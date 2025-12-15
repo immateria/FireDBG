@@ -18,27 +18,26 @@ firedbg doctor
 ## 2) Choose a target workspace
 FireDBG operates on a Cargo workspace.
 
-Pick any Rust workspace you control. The simplest approach is to use a tiny throwaway workspace (not included here), or a small existing repo.
-
-From the workspace root:
+This repo includes a tiny workspace you can use immediately:
 
 ```sh
+cd examples/smoke-workspace
 firedbg list-target
 ```
 
-If this prints targets, you’re ready.
+You should see a binary target named `app`.
 
 ## 3) Record a run
-Run one of the listed binaries (replace `<bin>`):
+Run the listed binary:
 
 ```sh
-firedbg run <bin>
+firedbg run app
 ```
 
 Or specify an explicit output path:
 
 ```sh
-firedbg run <bin> --output ./firedbg/target/<bin>.firedbg.ss
+firedbg run app --output ./firedbg/target/app.firedbg.ss
 ```
 
 ## 4) List runs + index
