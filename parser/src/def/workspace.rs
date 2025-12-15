@@ -205,8 +205,13 @@ impl Package {
             .arg("--list")
             .output()?;
         if !output.status.success() {
-            eprint!("{}", std::str::from_utf8(&output.stderr)?);
-            std::process::exit(1);
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            anyhow::bail!(
+                "Fail to list unit tests for package `{}` (status={}). {}",
+                self.name,
+                output.status,
+                if stderr.is_empty() { "" } else { &stderr }
+            );
         }
         let stdout = String::from_utf8(output.stdout)?;
         Ok(parse_test_testcases(stdout))
@@ -224,15 +229,16 @@ impl Package {
     }
 
     /// Get path of unit test executable.
-    ///
-    /// # Panics
-    ///
-    /// Panic if it fail to parse unit test executable
     pub fn get_unit_test_path(&self, workspace: &Workspace) -> Result<String> {
         let output = self.get_unit_test_cmd().arg("--no-run").output()?;
         if !output.status.success() {
-            eprint!("{}", std::str::from_utf8(&output.stderr)?);
-            panic!("Fail to compile unit test");
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            anyhow::bail!(
+                "Fail to compile unit tests for package `{}` (status={}). {}",
+                self.name,
+                output.status,
+                if stderr.is_empty() { "" } else { &stderr }
+            );
         }
 
         let target_dir = &workspace.target_dir;
@@ -240,7 +246,7 @@ impl Package {
         let suffix = String::from_utf8(output.stderr)?
             .split_once(test_binary_prefix)
             .map(|(_, after)| after.chars().take_while(|c| ')'.ne(c)).collect::<String>())
-            .expect("Fail to parse unit test executable path");
+            .ok_or_else(|| anyhow::anyhow!("Fail to parse unit test executable path"))?;
         // /Applications/MAMP/htdocs/FireDBG.for.Rust.Internal/parser/tests/example-workspace/target/debug/deps/quick_sort-c42cff5519f79ed2
         Ok(format!("{target_dir}/{test_binary_prefix}{suffix}"))
     }
@@ -294,15 +300,17 @@ impl Test {
     }
 
     /// Get path of integration test executable.
-    ///
-    /// # Panics
-    ///
-    /// Panic if it fail to parse integration test executable
     pub fn get_test_path(&self, workspace: &Workspace, package: &Package) -> Result<String> {
         let output = self.get_run_cmd(package).arg("--no-run").output()?;
         if !output.status.success() {
-            eprint!("{}", std::str::from_utf8(&output.stderr)?);
-            panic!("Fail to compile integration test");
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            anyhow::bail!(
+                "Fail to compile integration test `{}` for package `{}` (status={}). {}",
+                self.name,
+                package.name,
+                output.status,
+                if stderr.is_empty() { "" } else { &stderr }
+            );
         }
 
         let target_dir = &workspace.target_dir;
@@ -310,7 +318,7 @@ impl Test {
         let suffix = String::from_utf8(output.stderr)?
             .split_once(test_binary_prefix)
             .map(|(_, after)| after.chars().take_while(|c| ')'.ne(c)).collect::<String>())
-            .expect("Fail to parse integration test executable path");
+            .ok_or_else(|| anyhow::anyhow!("Fail to parse integration test executable path"))?;
         // /Applications/MAMP/htdocs/FireDBG.for.Rust.Internal/parser/tests/example-workspace/target/debug/deps/simple_tests-eb63f31f8208c8a4
         Ok(format!("{target_dir}/{test_binary_prefix}{suffix}"))
     }
@@ -345,8 +353,13 @@ impl Test {
             .arg("--list")
             .output()?;
         if !output.status.success() {
-            eprint!("{}", std::str::from_utf8(&output.stderr)?);
-            std::process::exit(1);
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            anyhow::bail!(
+                "Fail to list testcases for `{}` (status={}). {}",
+                self.name,
+                output.status,
+                if stderr.is_empty() { "" } else { &stderr }
+            );
         }
         let stdout = String::from_utf8(output.stdout)?;
         Ok(parse_test_testcases(stdout))

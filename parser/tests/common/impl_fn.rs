@@ -13,7 +13,11 @@ pub struct StructB {
 }
 
 impl StructB {
-    pub fn impl_func_b1<T>(&mut self, i: T) -> impl std::future::Future<Output = T> where T: Into<i32> { // FIXME: Should this be parsed as async function?
+    pub fn impl_func_b1<T>(&mut self, i: T) -> impl std::future::Future<Output = T>
+    where
+        T: Into<i32>,
+    {
+        // FIXME: Should this be parsed as async function?
         async { i }
     }
 
@@ -58,9 +62,7 @@ mod module_a {
             Self
         }
 
-        pub fn impl_func_f_empty() {
-
-        }
+        pub fn impl_func_f_empty() {}
     }
 }
 
@@ -102,31 +104,8 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 16,
-                    column: Some(105),
-                },
-                end: LineColumn {
-                    line: 17,
-                    column: Some(9),
-                },
-            },
-            end: LineColumn {
-                line: 18,
-                column: Some(4),
-            },
-        },
-        FunctionDef {
-            ty: FunctionType::ImplFn {
-                self_type: "StructB".into(),
-                fn_name: "impl_func_b2".into(),
-                is_async: false,
-                is_static: true,
-                return_type: true,
-            },
-            loc: BreakableSpan {
-                start: LineColumn {
-                    line: 20,
-                    column: Some(44),
+                    line: 19,
+                    column: Some(6),
                 },
                 end: LineColumn {
                     line: 21,
@@ -140,6 +119,29 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
         },
         FunctionDef {
             ty: FunctionType::ImplFn {
+                self_type: "StructB".into(),
+                fn_name: "impl_func_b2".into(),
+                is_async: false,
+                is_static: true,
+                return_type: true,
+            },
+            loc: BreakableSpan {
+                start: LineColumn {
+                    line: 24,
+                    column: Some(44),
+                },
+                end: LineColumn {
+                    line: 25,
+                    column: Some(9),
+                },
+            },
+            end: LineColumn {
+                line: 26,
+                column: Some(4),
+            },
+        },
+        FunctionDef {
+            ty: FunctionType::ImplFn {
                 self_type: "StructC".into(),
                 fn_name: "impl_func_c".into(),
                 is_async: false,
@@ -148,16 +150,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 28,
+                    line: 32,
                     column: Some(35),
                 },
                 end: LineColumn {
-                    line: 29,
+                    line: 33,
                     column: Some(9),
                 },
             },
             end: LineColumn {
-                line: 30,
+                line: 34,
                 column: Some(4),
             },
         },
@@ -171,16 +173,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 39,
+                    line: 43,
                     column: Some(69),
                 },
                 end: LineColumn {
-                    line: 40,
+                    line: 44,
                     column: Some(13),
                 },
             },
             end: LineColumn {
-                line: 41,
+                line: 45,
                 column: Some(8),
             },
         },
@@ -194,16 +196,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 48,
+                    line: 52,
                     column: Some(43),
                 },
                 end: LineColumn {
-                    line: 49,
+                    line: 53,
                     column: Some(17),
                 },
             },
             end: LineColumn {
-                line: 50,
+                line: 54,
                 column: Some(12),
             },
         },
@@ -217,16 +219,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 57,
+                    line: 61,
                     column: Some(39),
                 },
                 end: LineColumn {
-                    line: 58,
+                    line: 62,
                     column: Some(13),
                 },
             },
             end: LineColumn {
-                line: 59,
+                line: 63,
                 column: Some(8),
             },
         },
@@ -240,17 +242,17 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 61,
+                    line: 65,
                     column: Some(37),
                 },
                 end: LineColumn {
-                    line: 61,
+                    line: 65,
                     column: Some(37),
                 },
             },
             end: LineColumn {
-                line: 63,
-                column: Some(8),
+                line: 65,
+                column: Some(36),
             },
         },
     ]

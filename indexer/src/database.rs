@@ -5,7 +5,7 @@ use sea_orm::{
     ActiveModelTrait, ConnectOptions, ConnectionTrait, Database as SeaDatabase, DbConn, DbErr,
     EntityTrait, Schema,
 };
-use sea_streamer::file::AsyncFile;
+use sea_streamer::file::{AsyncFile, FileId};
 
 use crate::entity::{
     allocation::{self, Entity as Allocation},
@@ -25,9 +25,15 @@ pub struct Database {
 
 impl Database {
     pub async fn create(path: String) -> Result<Self, DbErr> {
-        AsyncFile::new_ow(path.parse().expect("UrlErr")) // overwrite the file
+        let file_id: FileId = path
+            .parse()
+            .map_err(|e| DbErr::Custom(format!("Invalid output path `{path}`: {e}")))?;
+
+        // Overwrite the file
+        AsyncFile::new_ow(file_id)
             .await
-            .expect("File System Error");
+            .map_err(|e| DbErr::Custom(format!("File system error: {e}")))?;
+
         let mut opt = ConnectOptions::new(format!("sqlite://{path}?mode=rw"));
         opt.max_connections(1).sqlx_logging(false);
         let db = SeaDatabase::connect(opt).await?;
@@ -47,6 +53,12 @@ impl Database {
         Ok(())
     }
 
+    /// Get the DB connection.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the database has been closed via [`Database::close`] / [`Database::reopen`]
+    /// and no connection is currently active.
     pub fn db(&self) -> &DbConn {
         self.db.as_ref().expect("DB closed")
     }

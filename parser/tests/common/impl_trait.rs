@@ -37,7 +37,10 @@ pub struct StructB {
 
 #[async_trait]
 impl TraitA for StructB {
-    async fn func_default<T>(i: T) -> &'static str where T: Into<i32> + Send {
+    async fn func_default<T>(i: T) -> &'static str
+    where
+        T: Into<i32> + Send,
+    {
         "<StructB as TraitA>::func_default()"
     }
 
@@ -191,40 +194,40 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 40,
-                    column: Some(79),
+                    line: 43,
+                    column: Some(6),
                 },
                 end: LineColumn {
-                    line: 41,
-                    column: Some(9),
-                },
-            },
-            end: LineColumn {
-                line: 42,
-                column: Some(4),
-            },
-        },
-        FunctionDef {
-            ty: FunctionType::ImplTraitFn {
-                trait_name: "TraitA".into(),
-                self_type: "StructB".into(),
-                fn_name: "func_required".into(),
-                is_async: false,
-                is_static: true,
-                return_type: true,
-            },
-            loc: BreakableSpan {
-                start: LineColumn {
                     line: 44,
-                    column: Some(41),
-                },
-                end: LineColumn {
-                    line: 45,
                     column: Some(9),
                 },
             },
             end: LineColumn {
-                line: 46,
+                line: 45,
+                column: Some(4),
+            },
+        },
+        FunctionDef {
+            ty: FunctionType::ImplTraitFn {
+                trait_name: "TraitA".into(),
+                self_type: "StructB".into(),
+                fn_name: "func_required".into(),
+                is_async: false,
+                is_static: true,
+                return_type: true,
+            },
+            loc: BreakableSpan {
+                start: LineColumn {
+                    line: 47,
+                    column: Some(41),
+                },
+                end: LineColumn {
+                    line: 48,
+                    column: Some(9),
+                },
+            },
+            end: LineColumn {
+                line: 49,
                 column: Some(4),
             },
         },
@@ -239,16 +242,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 50,
+                    line: 53,
                     column: Some(51),
                 },
                 end: LineColumn {
-                    line: 51,
+                    line: 54,
                     column: Some(9),
                 },
             },
             end: LineColumn {
-                line: 52,
+                line: 55,
                 column: Some(4),
             },
         },
@@ -263,16 +266,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 59,
+                    line: 62,
                     column: Some(41),
                 },
                 end: LineColumn {
-                    line: 60,
+                    line: 63,
                     column: Some(9),
                 },
             },
             end: LineColumn {
-                line: 61,
+                line: 64,
                 column: Some(4),
             },
         },
@@ -287,16 +290,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 65,
+                    line: 68,
                     column: Some(51),
                 },
                 end: LineColumn {
-                    line: 66,
+                    line: 69,
                     column: Some(9),
                 },
             },
             end: LineColumn {
-                line: 67,
+                line: 70,
                 column: Some(4),
             },
         },
@@ -310,16 +313,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 74,
+                    line: 77,
                     column: Some(69),
                 },
                 end: LineColumn {
-                    line: 75,
+                    line: 78,
                     column: Some(13),
                 },
             },
             end: LineColumn {
-                line: 76,
+                line: 79,
                 column: Some(8),
             },
         },
@@ -334,16 +337,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 89,
+                    line: 92,
                     column: Some(45),
                 },
                 end: LineColumn {
-                    line: 90,
+                    line: 93,
                     column: Some(13),
                 },
             },
             end: LineColumn {
-                line: 91,
+                line: 94,
                 column: Some(8),
             },
         },
@@ -358,16 +361,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 95,
+                    line: 98,
                     column: Some(55),
                 },
                 end: LineColumn {
-                    line: 96,
+                    line: 99,
                     column: Some(13),
                 },
             },
             end: LineColumn {
-                line: 97,
+                line: 100,
                 column: Some(8),
             },
         },
@@ -382,16 +385,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 101,
+                    line: 104,
                     column: Some(55),
                 },
                 end: LineColumn {
-                    line: 102,
+                    line: 105,
                     column: Some(13),
                 },
             },
             end: LineColumn {
-                line: 103,
+                line: 106,
                 column: Some(8),
             },
         },

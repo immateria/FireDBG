@@ -36,7 +36,9 @@ fn func() -> i32 {
         name: String,
     }
 
-    let mut obj = Object { name: "NAME".into() };
+    let mut obj = Object {
+        name: "NAME".into(),
+    };
     obj.name = "NEW".into();
 
     struct Color(usize, usize, usize);
@@ -69,29 +71,25 @@ fn func() -> i32 {
     struct NestedOf6(NestedA);
 
     let mut nested_of_2 = NestedOf2::default();
-    nested_of_2.0.0 = 2;
+    nested_of_2.0 .0 = 2;
 
     let mut nested_of_3 = NestedOf3::default();
-    nested_of_3.0.1.0 = 3;
+    nested_of_3.0 .1 .0 = 3;
 
     let mut nested_of_4 = NestedOf4::default();
-    nested_of_4.0.2.1.0 = 4;
+    nested_of_4.0 .2 .1 .0 = 4;
 
     let mut nested_of_5 = NestedOf5::default();
-    nested_of_5.0.3.2.1.0 = 5;
+    nested_of_5.0 .3 .2 .1 .0 = 5;
 
     let mut nested_of_6 = NestedOf6::default();
-    nested_of_6.0.4.3.2.1.0 = 6;
+    nested_of_6.0 .4 .3 .2 .1 .0 = 6;
 
     impl Object {
         const OBJ_E_CONST: f64 = 2.71;
 
         fn object_func(&self) -> f64 {
-            let obj_e = if true {
-                Self::OBJ_E_CONST
-            } else {
-                2.71
-            };
+            let obj_e = if true { Self::OBJ_E_CONST } else { 2.71 };
             Self::OBJ_E_CONST
         }
     }
@@ -122,9 +120,7 @@ fn func() -> i32 {
 
     let a = Some(1);
 
-    let Some(_) = a else {
-        unreachable!()
-    };
+    let Some(_) = a else { unreachable!() };
 
     println!();
 
@@ -145,112 +141,112 @@ use firedbg_rust_parser::*;
 pub fn get_breakpoints() -> Vec<FunctionDef> {
     vec![
         FunctionDef {
-            ty: FunctionType::FreeFn {
+            ty:             FunctionType::FreeFn {
                 fn_name: "func".into(),
                 is_async: false,
                 return_type: true,
             },
-            loc: BreakableSpan {
-                start: LineColumn {
+            loc:             BreakableSpan {
+                start:                 LineColumn {
                     line: 1,
                     column: Some(19),
                 },
-                end: LineColumn {
+                end:                 LineColumn {
                     line: 2,
                     column: Some(5),
                 },
             },
-            end: LineColumn {
-                line: 140,
-                column: Some(1),
+            end:             LineColumn {
+                line: 136,
+                column: Some(0),
             },
         },
         FunctionDef {
-            ty: FunctionType::NestedFn {
+            ty:             FunctionType::NestedFn {
                 fn_name: "object_func".into(),
                 parent_func: "func".into(),
                 is_async: false,
                 return_type: true,
             },
-            loc: BreakableSpan {
-                start: LineColumn {
-                    line: 89,
+            loc:             BreakableSpan {
+                start:                 LineColumn {
+                    line: 91,
                     column: Some(39),
                 },
-                end: LineColumn {
-                    line: 90,
+                end:                 LineColumn {
+                    line: 92,
                     column: Some(13),
                 },
             },
-            end: LineColumn {
-                line: 96,
-                column: Some(9),
+            end:             LineColumn {
+                line: 94,
+                column: Some(8),
             },
         },
         FunctionDef {
-            ty: FunctionType::NestedFn {
+            ty:             FunctionType::NestedFn {
                 fn_name: "cal_e".into(),
                 parent_func: "func".into(),
                 is_async: false,
                 return_type: true,
             },
-            loc: BreakableSpan {
-                start: LineColumn {
-                    line: 102,
+            loc:             BreakableSpan {
+                start:                 LineColumn {
+                    line: 100,
                     column: Some(28),
                 },
-                end: LineColumn {
-                    line: 103,
+                end:                 LineColumn {
+                    line: 101,
                     column: Some(13),
                 },
             },
-            end: LineColumn {
-                line: 109,
-                column: Some(9),
+            end:             LineColumn {
+                line: 107,
+                column: Some(8),
             },
         },
         FunctionDef {
-            ty: FunctionType::NestedFn {
+            ty:             FunctionType::NestedFn {
                 fn_name: "cal_e".into(),
                 parent_func: "func".into(),
                 is_async: false,
                 return_type: true,
             },
-            loc: BreakableSpan {
-                start: LineColumn {
-                    line: 113,
+            loc:             BreakableSpan {
+                start:                 LineColumn {
+                    line: 111,
                     column: Some(28),
                 },
-                end: LineColumn {
-                    line: 114,
+                end:                 LineColumn {
+                    line: 112,
                     column: Some(13),
                 },
             },
-            end: LineColumn {
-                line: 120,
-                column: Some(9),
+            end:             LineColumn {
+                line: 118,
+                column: Some(8),
             },
         },
         FunctionDef {
-            ty: FunctionType::NestedFn {
+            ty:             FunctionType::NestedFn {
                 fn_name: "assign_to_stmt".into(),
                 parent_func: "func".into(),
                 is_async: false,
                 return_type: true,
             },
-            loc: BreakableSpan {
-                start: LineColumn {
-                    line: 133,
+            loc:             BreakableSpan {
+                start:                 LineColumn {
+                    line: 129,
                     column: Some(46),
                 },
-                end: LineColumn {
-                    line: 134,
+                end:                 LineColumn {
+                    line: 130,
                     column: Some(9),
                 },
             },
-            end: LineColumn {
-                line: 137,
-                column: Some(5),
+            end:             LineColumn {
+                line: 133,
+                column: Some(4),
             },
         },
     ]

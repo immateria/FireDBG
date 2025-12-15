@@ -4,7 +4,7 @@
     unused_assignments,
     dead_code,
     clippy::never_loop,
-    clippy::approx_constant,
+    clippy::approx_constant
 )]
 
 pub mod free_fn;

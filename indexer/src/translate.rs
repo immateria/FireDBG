@@ -95,15 +95,15 @@ pub fn event(timestamp: Timestamp, event: SrcEvent) -> Event {
             let data = json_stringify(&locals);
             let mut pretty = String::new();
             let mut is_error = false;
-            write!(pretty, "(").unwrap();
+            let _ = write!(pretty, "(");
             if !locals.is_empty() {
-                write!(pretty, "\n").unwrap();
+                let _ = write!(pretty, "\n");
             }
             for (name, value) in locals {
-                write!(pretty, "{name}: {value:#},\n").unwrap();
+                let _ = write!(pretty, "{name}: {value:#},\n");
                 is_error |= value_is_error(&value);
             }
-            write!(pretty, ")").unwrap();
+            let _ = write!(pretty, ")");
             let event_type = match reason {
                 Reason::Breakpoint => EventType::Breakpoint,
                 Reason::FutureEnter => EventType::FutureEnter,
@@ -143,15 +143,15 @@ pub fn event(timestamp: Timestamp, event: SrcEvent) -> Event {
             let data = json_stringify(&arguments);
             let mut pretty = String::new();
             let mut is_error = false;
-            write!(pretty, "(").unwrap();
+            let _ = write!(pretty, "(");
             if !arguments.is_empty() {
-                write!(pretty, "\n").unwrap();
+                let _ = write!(pretty, "\n");
             }
             for (name, value) in arguments {
-                write!(pretty, "{name}: {value:#},\n").unwrap();
+                let _ = write!(pretty, "{name}: {value:#},\n");
                 is_error |= value_is_error(&value);
             }
-            write!(pretty, ")").unwrap();
+            let _ = write!(pretty, ")");
 
             Event {
                 id: NotSet,
@@ -234,9 +234,9 @@ fn type_info_of(value: &RValue) -> Option<TypeInfo> {
             RValue::Struct { fields, .. } => {
                 let mut s = "[".to_string();
                 for (i, name) in fields.keys().enumerate() {
-                    write!(s, "{}\"{}\"", if i == 0 { "" } else { "," }, name).unwrap();
+                    let _ = write!(s, "{}\"{}\"", if i == 0 { "" } else { "," }, name);
                 }
-                write!(s, "]").unwrap();
+                let _ = write!(s, "]");
                 Some(s)
             }
             RValue::Union { typeinfo, .. } => Some(json_stringify(&typeinfo.variants)),
@@ -272,5 +272,5 @@ fn json_stringify<T>(v: &T) -> String
 where
     T: ?Sized + Serialize,
 {
-    serde_json::to_string(v).expect("Fail to serialize into JSON string")
+    serde_json::to_string(v).unwrap_or_else(|e| format!("\"<json-error: {e}>\""))
 }

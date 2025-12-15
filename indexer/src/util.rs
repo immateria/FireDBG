@@ -1,17 +1,23 @@
 use firedbg_rust_debugger::{DebuggerInfo, InfoMessage};
 use sea_streamer::{Buffer, Message, SharedMessage};
 
+/// Deserialize a message payload from JSON.
+///
+/// # Panics
+///
+/// Panics if deserialization fails.
 pub fn deser<T: serde::de::DeserializeOwned>(m: &SharedMessage) -> T {
-    try_deser(m).expect("Deserialization failed")
+    match try_deser(m) {
+        Ok(v) => v,
+        Err(e) => panic!("Deserialization failed: {e}"),
+    }
 }
 
 fn try_deser<T: serde::de::DeserializeOwned>(m: &SharedMessage) -> Result<T, String> {
     m.message().deserialize_json().map_err(|e| {
         format!(
             "Failed to deserialize message `{}`: {}",
-            m.message()
-                .as_str()
-                .expect("Failed to convert message to &str"),
+            m.message().as_str().unwrap_or("<non-utf8 message>"),
             e
         )
     })

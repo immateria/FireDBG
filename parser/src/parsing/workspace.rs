@@ -48,9 +48,7 @@ fn parse_packages(raw_packages: Vec<raw::Package>, workspace_root_dir: &str) -> 
                 // Prefer the "primary" binary (not under src/bin) first.
                 let a_primary = !a.src_path.contains("/src/bin/");
                 let b_primary = !b.src_path.contains("/src/bin/");
-                b_primary
-                    .cmp(&a_primary)
-                    .then_with(|| a.name.cmp(&b.name))
+                b_primary.cmp(&a_primary).then_with(|| a.name.cmp(&b.name))
             });
 
             let mut tests = parse_tests(raw_package.targets.clone());

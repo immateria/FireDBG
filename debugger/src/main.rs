@@ -280,7 +280,9 @@ async fn main() -> Result<()> {
         let mut buffer = source.drain().await;
         if !buffer.is_empty() {
             let bytes: sea_streamer::file::Bytes = buffer.consume(buffer.size());
-            let s = std::str::from_utf8(&bytes.bytes()).context("read utf8")?.to_string();
+            let s = std::str::from_utf8(&bytes.bytes())
+                .context("read utf8")?
+                .to_string();
             print!("{}", s);
             std::io::Write::flush(&mut std::io::stdout()).context("flush")?;
 
@@ -321,7 +323,9 @@ async fn main() -> Result<()> {
         let mut buffer = source.drain().await;
         if !buffer.is_empty() {
             let bytes: sea_streamer::file::Bytes = buffer.consume(buffer.size());
-            let s = std::str::from_utf8(&bytes.bytes()).context("read utf8")?.to_string();
+            let s = std::str::from_utf8(&bytes.bytes())
+                .context("read utf8")?
+                .to_string();
             eprint!("{}", s);
             std::io::Write::flush(&mut std::io::stderr()).context("flush")?;
 
@@ -366,4 +370,3 @@ pub async fn create_streamer(output: &str) -> Result<SeaProducer> {
 
     Ok(producer)
 }
-

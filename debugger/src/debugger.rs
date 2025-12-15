@@ -942,14 +942,8 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
         process_timer.global
     );
 
-    SB_PROCESS
-        .lock()
-        .expect("SB_PROCESS lock poisoned")
-        .take();
-    SB_TARGET
-        .lock()
-        .expect("SB_TARGET lock poisoned")
-        .take();
+    SB_PROCESS.lock().expect("SB_PROCESS lock poisoned").take();
+    SB_TARGET.lock().expect("SB_TARGET lock poisoned").take();
 
     Ok(())
 }
@@ -1001,9 +995,7 @@ pub(crate) fn get_union_type(ty: &SBType) -> Option<Arc<UnionType>> {
 }
 
 pub(crate) fn get_sb_type(name: &str) -> Option<SBType> {
-    let sb_target_guard = SB_TARGET
-        .lock()
-        .expect("SB_TARGET lock poisoned");
+    let sb_target_guard = SB_TARGET.lock().expect("SB_TARGET lock poisoned");
     let sb_target = sb_target_guard.as_ref().expect("Always");
     let mut cache = TYPE_CACHE
         .try_lock()
@@ -1029,9 +1021,7 @@ pub(crate) fn sb_value_from_addr(
     addr: u64,
     sb_type: &SBType,
 ) -> Result<SBValue, WriteErr> {
-    let sb_target_guard = SB_TARGET
-        .lock()
-        .expect("SB_TARGET lock poisoned");
+    let sb_target_guard = SB_TARGET.lock().expect("SB_TARGET lock poisoned");
     let sb_target = sb_target_guard.as_ref().expect("Always");
     let addr = SBAddress::from_load_address(addr, sb_target);
     let value = sb_target.create_value_from_address(name, &addr, sb_type);
@@ -1047,9 +1037,7 @@ pub(crate) fn sb_value_from_data(
     data: &[u64],
     sb_type: &SBType,
 ) -> Result<SBValue, WriteErr> {
-    let sb_target_guard = SB_TARGET
-        .lock()
-        .expect("SB_TARGET lock poisoned");
+    let sb_target_guard = SB_TARGET.lock().expect("SB_TARGET lock poisoned");
     let sb_target = sb_target_guard.as_ref().expect("Always");
     let sb_data = SBData::from_u64(
         data,
@@ -1068,9 +1056,7 @@ pub(crate) fn sb_value_from_data(
 }
 
 pub(crate) fn read_process_memory(addr: u64, len: usize) -> Result<Vec<u8>, WriteErr> {
-    let sb_process_guard = SB_PROCESS
-        .lock()
-        .expect("SB_PROCESS lock poisoned");
+    let sb_process_guard = SB_PROCESS.lock().expect("SB_PROCESS lock poisoned");
     let sb_process = sb_process_guard.as_ref().expect("Some");
     let mut buf = vec![0u8; len];
     sb_process

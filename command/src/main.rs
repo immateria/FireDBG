@@ -428,8 +428,7 @@ async fn main() -> Result<()> {
             }
         }
         SubCommand::Doctor { json_format, deep } => {
-            doctor(workspace, firedbg_home, json_format, deep)
-                .context("Fail to run doctor")?;
+            doctor(workspace, firedbg_home, json_format, deep).context("Fail to run doctor")?;
         }
         SubCommand::ListConfig { json_format } => {
             let config =
@@ -829,8 +828,8 @@ fn doctor(
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .map(|d| d.as_millis())
                 .unwrap_or(0);
-            let test_path = Path::new(&workspace_firedbg_target_dir)
-                .join(format!(".doctor-write-test-{ts}"));
+            let test_path =
+                Path::new(&workspace_firedbg_target_dir).join(format!(".doctor-write-test-{ts}"));
 
             match fs::OpenOptions::new()
                 .write(true)
@@ -861,7 +860,9 @@ fn doctor(
     }
 
     if rustc.is_none() || cargo.is_none() {
-        hints.push("Install Rust via rustup (ensures both `rustc` and `cargo` are on PATH)".to_string());
+        hints.push(
+            "Install Rust via rustup (ensures both `rustc` and `cargo` are on PATH)".to_string(),
+        );
     }
 
     let (mode, home) = if using_cargo_run {
@@ -881,7 +882,10 @@ fn doctor(
     if let Some(home) = home.as_ref() {
         let home = home.trim_end_matches('/');
         for bin in ["firedbg", "firedbg-debugger", "firedbg-indexer"] {
-            installed.insert(bin.to_string(), Path::new(&format!("{home}/{bin}")).is_file());
+            installed.insert(
+                bin.to_string(),
+                Path::new(&format!("{home}/{bin}")).is_file(),
+            );
         }
 
         let firedbg_lib_path_str = format!("{home}/firedbg-lib");
@@ -939,7 +943,11 @@ fn doctor(
                         command: format!("{} --help", debugger_path),
                         ok,
                         status: output.status.code(),
-                        stderr: if stderr.is_empty() { None } else { Some(stderr) },
+                        stderr: if stderr.is_empty() {
+                            None
+                        } else {
+                            Some(stderr)
+                        },
                     });
 
                     if !ok {
@@ -969,7 +977,8 @@ fn doctor(
 
     if !code.present {
         hints.push(
-            "VS Code: Command Palette → `Shell Command: Install 'code' command in PATH`".to_string(),
+            "VS Code: Command Palette → `Shell Command: Install 'code' command in PATH`"
+                .to_string(),
         );
     }
 
@@ -987,15 +996,9 @@ fn doctor(
         );
     }
 
-    let pythonpath_effective = lldb.as_ref().map(|paths| {
-        match env::var_os("PYTHONPATH") {
-            Some(existing) => format!(
-                "{}:{}",
-                paths.python_dir,
-                existing.to_string_lossy()
-            ),
-            None => paths.python_dir.clone(),
-        }
+    let pythonpath_effective = lldb.as_ref().map(|paths| match env::var_os("PYTHONPATH") {
+        Some(existing) => format!("{}:{}", paths.python_dir, existing.to_string_lossy()),
+        None => paths.python_dir.clone(),
     });
 
     match &lldb {
@@ -1015,7 +1018,9 @@ fn doctor(
                 hints.push("macOS: install Xcode Command Line Tools (`xcode-select --install`) and ensure `lldb` is on PATH".to_string());
                 hints.push("macOS (Homebrew): `brew install llvm` then add the llvm bin dir to PATH so `lldb -P` works".to_string());
             } else if cfg!(target_os = "linux") {
-                hints.push("Linux: install LLDB (package name varies; e.g. `lldb` / `llvm`)".to_string());
+                hints.push(
+                    "Linux: install LLDB (package name varies; e.g. `lldb` / `llvm`)".to_string(),
+                );
             }
         }
     }
@@ -1189,7 +1194,10 @@ fn doctor(
                 None => console::warn("lldb-server", "not found"),
             }
         }
-        None => console::warn("LLDB", "not detected (try installing llvm/lldb or Xcode tools)"),
+        None => console::warn(
+            "LLDB",
+            "not detected (try installing llvm/lldb or Xcode tools)",
+        ),
     }
 
     if let Some(code) = &report.code {
@@ -1295,7 +1303,10 @@ async fn run_unit_test(
         .build_unit_test()
         .context("Fail to build unit test")?;
     if !build_cmd_output.status.success() {
-        anyhow::bail!("Failed to compile unit tests for package `{}`", package.name);
+        anyhow::bail!(
+            "Failed to compile unit tests for package `{}`",
+            package.name
+        );
     }
     let executable = package
         .get_unit_test_path(workspace)
@@ -1598,7 +1609,11 @@ async fn run_debugger(
             return None;
         }
         let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if s.is_empty() { None } else { Some(s) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     }
 
     #[derive(Debug, Serialize)]
@@ -1657,9 +1672,7 @@ async fn run_debugger(
             pythonpath,
             debugger_file_info: file_info(&debugger_program),
             executable_file_info: file_info(&executable),
-            debugserver_file_info: lldb_debugserver_path
-                .as_deref()
-                .and_then(file_info),
+            debugserver_file_info: lldb_debugserver_path.as_deref().and_then(file_info),
             liblldb_file_info,
         })
     };
@@ -1937,9 +1950,7 @@ fn detect_lldb_paths() -> Option<LldbPaths> {
         // and debugserver is:
         //   .../LLDB.framework/.../Resources/debugserver
         let debugserver = if python_dir.ends_with("Resources/Python") {
-            let resources_dir = python_dir
-                .parent()
-                .expect("Resources/Python has a parent");
+            let resources_dir = python_dir.parent().expect("Resources/Python has a parent");
             find_debugserver(resources_dir)
         } else {
             let bin_dir = python_dir

@@ -122,7 +122,10 @@ where
     // println!("{:#?}", res);
 
     if !res.status.success() {
-        panic!("Fail to parse workspace metadata");
+        anyhow::bail!(
+            "Fail to parse workspace metadata (cargo metadata exited with {})",
+            res.status
+        );
     }
 
     let workspace_raw =

@@ -4,14 +4,15 @@ mod abc {
     // Some comments...
 }
 
-async fn free_func_a(i: i32) -> i32{
+async fn free_func_a(i: i32) -> i32 {
     for n in 0..i {
         println!("free_func_a for loop {n}");
     }
     i
 }
 
-pub fn free_func_b(i: usize) -> impl std::future::Future<Output = usize> { // FIXME: Should this be parsed as async function?
+pub fn free_func_b(i: usize) -> impl std::future::Future<Output = usize> {
+    // FIXME: Should this be parsed as async function?
     while false {
         panic!("free_func_b");
     }
@@ -28,7 +29,10 @@ pub(crate) fn free_func_c<T: Into<i64>>(i: T) -> T {
 mod module_a {
     use super::*;
 
-    pub(crate) fn free_func_d<T>(i: T) -> T where T: Into<u64> {
+    pub(crate) fn free_func_d<T>(i: T) -> T
+    where
+        T: Into<u64>,
+    {
         i
     }
 
@@ -49,13 +53,11 @@ mod module_a {
     }
 }
 
-fn free_func_h(i: u64) -> () {
+fn free_func_h(i: u64) -> () {}
 
-
-
+fn free_func_i(i: u64) -> ! {
+    unimplemented!()
 }
-
-fn free_func_i(i: u64) -> ! { unimplemented!() }
 
 use firedbg_protocol::source::*;
 use firedbg_rust_parser::*;
@@ -71,7 +73,7 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             loc: BreakableSpan {
                 start: LineColumn {
                     line: 7,
-                    column: Some(37),
+                    column: Some(38),
                 },
                 end: LineColumn {
                     line: 8,
@@ -95,12 +97,12 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
                     column: Some(75),
                 },
                 end: LineColumn {
-                    line: 15,
+                    line: 16,
                     column: Some(5),
                 },
             },
             end: LineColumn {
-                line: 19,
+                line: 20,
                 column: Some(0),
             },
         },
@@ -112,16 +114,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 21,
+                    line: 22,
                     column: Some(53),
                 },
                 end: LineColumn {
-                    line: 22,
+                    line: 23,
                     column: Some(5),
                 },
             },
             end: LineColumn {
-                line: 26,
+                line: 27,
                 column: Some(0),
             },
         },
@@ -133,16 +135,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 31,
-                    column: Some(65),
+                    line: 35,
+                    column: Some(6),
                 },
                 end: LineColumn {
-                    line: 32,
+                    line: 36,
                     column: Some(9),
                 },
             },
             end: LineColumn {
-                line: 33,
+                line: 37,
                 column: Some(4),
             },
         },
@@ -154,16 +156,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 36,
+                    line: 40,
                     column: Some(40),
                 },
                 end: LineColumn {
-                    line: 37,
+                    line: 41,
                     column: Some(13),
                 },
             },
             end: LineColumn {
-                line: 38,
+                line: 42,
                 column: Some(8),
             },
         },
@@ -175,16 +177,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 41,
+                    line: 45,
                     column: Some(56),
                 },
                 end: LineColumn {
-                    line: 42,
+                    line: 46,
                     column: Some(17),
                 },
             },
             end: LineColumn {
-                line: 43,
+                line: 47,
                 column: Some(12),
             },
         },
@@ -196,16 +198,16 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 47,
+                    line: 51,
                     column: Some(47),
                 },
                 end: LineColumn {
-                    line: 48,
+                    line: 52,
                     column: Some(9),
                 },
             },
             end: LineColumn {
-                line: 49,
+                line: 53,
                 column: Some(4),
             },
         },
@@ -217,17 +219,17 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
             },
             loc: BreakableSpan {
                 start: LineColumn {
-                    line: 52,
+                    line: 56,
                     column: Some(31),
                 },
                 end: LineColumn {
-                    line: 52,
+                    line: 56,
                     column: Some(31),
                 },
             },
             end: LineColumn {
                 line: 56,
-                column: Some(0),
+                column: Some(30),
             },
         },
         FunctionDef {
@@ -242,13 +244,13 @@ pub fn get_breakpoints() -> Vec<FunctionDef> {
                     column: Some(30),
                 },
                 end: LineColumn {
-                    line: 58,
-                    column: Some(31),
+                    line: 59,
+                    column: Some(5),
                 },
             },
             end: LineColumn {
-                line: 58,
-                column: Some(47),
+                line: 60,
+                column: Some(0),
             },
         },
     ]
