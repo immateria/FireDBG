@@ -10,6 +10,8 @@ pub const FILE_STREAM: &str = "file";
 pub const BREAKPOINT_STREAM: &str = "breakpoint";
 pub const EVENT_STREAM: &str = "event";
 pub const ALLOCATION_STREAM: &str = "allocation";
+pub const STDOUT_STREAM: &str = "stdout";
+pub const STDERR_STREAM: &str = "stderr";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]

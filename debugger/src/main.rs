@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use firedbg_rust_debugger::{
     check_rustc_version, get_target_basename, new_breakpoint, Debugger, DebuggerInfo,
-    DebuggerParams, FireDbgForRust, InfoMessage, SourceFile, INFO_STREAM,
+    DebuggerParams, FireDbgForRust, InfoMessage, SourceFile, INFO_STREAM, STDERR_STREAM,
+    STDOUT_STREAM,
 };
 use firedbg_rust_parser::{serde::from_bson_file, File};
 use glob::glob;
@@ -224,14 +225,32 @@ async fn main() -> Result<()> {
         arguments,
     };
 
+    let stdout_stream = StreamKey::new(STDOUT_STREAM)
+        .with_context(|| format!("Fail to create StreamKey: `{STDOUT_STREAM}`"))?;
+    let stderr_stream = StreamKey::new(STDERR_STREAM)
+        .with_context(|| format!("Fail to create StreamKey: `{STDERR_STREAM}`"))?;
+    fn now_ms() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    }
+
     let notify = Arc::new(Notify::new());
     let notifier = notify.clone();
 
-    // Tail program stdout
-    let tail_handle = spawn_task::<_, Result<()>>(async move {
-        // We need to create an empty file to be able to tail it,
-        // stdout messages will be appended to the file
-        let target_basename = get_target_basename(&output);
+    // Tail program stdout/stderr
+    let stdout_notify = notify.clone();
+    let stderr_notify = notify.clone();
+
+    let stdout_output = output.clone();
+    let stderr_output = output.clone();
+
+    let stdout_producer = producer.clone();
+    let stderr_producer = producer.clone();
+
+    let stdout_tail_handle = spawn_task::<_, Result<()>>(async move {
+        let target_basename = get_target_basename(&stdout_output);
         let path = format!("{target_basename}.stdout");
         std::fs::File::create(&path).with_context(|| format!("Fail to create file: `{path}`"))?;
         let file_id = FileId::new(path);
@@ -243,9 +262,16 @@ async fn main() -> Result<()> {
         loop {
             select! {
                 res = FileSource::stream_bytes(&mut source).fuse() => {
-                    print_to_stdout(res.context("read stdout")?)?;
+                    let bytes = res.context("read stdout")?;
+                    let s = std::str::from_utf8(&bytes.bytes()).context("read utf8")?.to_string();
+                    print!("{}", s);
+                    std::io::Write::flush(&mut std::io::stdout()).context("flush")?;
+
+                    // Also persist in-stream for UI consumption.
+                    let payload = serde_json::json!({ "ts_ms": now_ms(), "data": s }).to_string();
+                    stdout_producer.send_to(&stdout_stream, payload.as_str())?;
                 }
-                _ = notify.notified().fuse() => {
+                _ = stdout_notify.notified().fuse() => {
                     break;
                 }
             }
@@ -253,20 +279,68 @@ async fn main() -> Result<()> {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let mut buffer = source.drain().await;
         if !buffer.is_empty() {
-            print_to_stdout(buffer.consume(buffer.size()))?;
+            let bytes: sea_streamer::file::Bytes = buffer.consume(buffer.size());
+            let s = std::str::from_utf8(&bytes.bytes()).context("read utf8")?.to_string();
+            print!("{}", s);
+            std::io::Write::flush(&mut std::io::stdout()).context("flush")?;
+
+            let payload = serde_json::json!({ "ts_ms": now_ms(), "data": s }).to_string();
+            stdout_producer.send_to(&stdout_stream, payload.as_str())?;
         }
         Ok(())
     });
 
-    // Run the debugger
-    Debugger::run(debugger_params, producer.clone());
+    let stderr_tail_handle = spawn_task::<_, Result<()>>(async move {
+        let target_basename = get_target_basename(&stderr_output);
+        let path = format!("{target_basename}.stderr");
+        std::fs::File::create(&path).with_context(|| format!("Fail to create file: `{path}`"))?;
+        let file_id = FileId::new(path);
+
+        let mut source = FileSource::new(file_id.clone(), ReadFrom::Beginning)
+            .await
+            .context("Fail to start file source")?;
+
+        loop {
+            select! {
+                res = FileSource::stream_bytes(&mut source).fuse() => {
+                    let bytes = res.context("read stderr")?;
+                    let s = std::str::from_utf8(&bytes.bytes()).context("read utf8")?.to_string();
+                    eprint!("{}", s);
+                    std::io::Write::flush(&mut std::io::stderr()).context("flush")?;
+
+                    // Also persist in-stream for UI consumption.
+                    let payload = serde_json::json!({ "ts_ms": now_ms(), "data": s }).to_string();
+                    stderr_producer.send_to(&stderr_stream, payload.as_str())?;
+                }
+                _ = stderr_notify.notified().fuse() => {
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let mut buffer = source.drain().await;
+        if !buffer.is_empty() {
+            let bytes: sea_streamer::file::Bytes = buffer.consume(buffer.size());
+            let s = std::str::from_utf8(&bytes.bytes()).context("read utf8")?.to_string();
+            eprint!("{}", s);
+            std::io::Write::flush(&mut std::io::stderr()).context("flush")?;
+
+            let payload = serde_json::json!({ "ts_ms": now_ms(), "data": s }).to_string();
+            stderr_producer.send_to(&stderr_stream, payload.as_str())?;
+        }
+        Ok(())
+    });
+
+    // Run the debugger (avoid panicking; still ensure we end the producer and stop tailers).
+    let debugger_result = Debugger::try_run(debugger_params, producer.clone());
 
     // Cleanup and kill the tail task
     producer.end().await.context("Fail to kill producer")?;
-    notifier.notify_one();
-    tail_handle.await??;
+    notifier.notify_waiters();
+    stdout_tail_handle.await??;
+    stderr_tail_handle.await??;
 
-    Ok(())
+    debugger_result
 }
 
 pub async fn create_streamer(output: &str) -> Result<SeaProducer> {
@@ -293,10 +367,3 @@ pub async fn create_streamer(output: &str) -> Result<SeaProducer> {
     Ok(producer)
 }
 
-fn print_to_stdout(bytes: sea_streamer::file::Bytes) -> Result<()> {
-    print!(
-        "{}",
-        std::str::from_utf8(&bytes.bytes()).context("read utf8")?
-    );
-    std::io::Write::flush(&mut std::io::stdout()).context("flush")
-}

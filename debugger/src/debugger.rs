@@ -131,10 +131,17 @@ impl FunctionCache {
 
 impl Debugger {
     #[inline]
-    /// Run the debugger. There can only be one debugger instance per process at any time.
-    /// We should not re-run the debugger against a different executable target.
+    /// Run the debugger (panics on error).
+    ///
+    /// Prefer [`Debugger::try_run`] in binaries to get a structured error instead of a panic.
     pub fn run(params: DebuggerParams, producer: SeaProducer) {
-        run(params, producer).expect("Fail to start debugger");
+        Self::try_run(params, producer).expect("Fail to start debugger");
+    }
+
+    #[inline]
+    /// Run the debugger and return a structured error instead of panicking.
+    pub fn try_run(params: DebuggerParams, producer: SeaProducer) -> Result<()> {
+        run(params, producer)
     }
 }
 
@@ -197,7 +204,13 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
         let file_stream = StreamKey::new(FILE_STREAM)
             .with_context(|| format!("Fail to create StreamKey: `{FILE_STREAM}`"))?;
         for (i, file) in params.files.iter().enumerate() {
-            assert_eq!(i as u32, file.id);
+            if i as u32 != file.id {
+                anyhow::bail!(
+                    "Internal error: source file id mismatch (expected {}, got {})",
+                    i,
+                    file.id
+                );
+            }
             let content = serde_json::to_string(&file).context("Fail to serialize JSON")?;
             producer
                 .send_to(&file_stream, content)
@@ -237,7 +250,13 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
 
     for (i, mut bp) in params.breakpoints.into_iter().enumerate().skip(1) {
         let crate_name = format!("{}::", &params.files[bp.file_id as usize].crate_name);
-        assert_eq!(i as u32, bp.id);
+        if i as u32 != bp.id {
+            anyhow::bail!(
+                "Internal error: breakpoint id mismatch (expected {}, got {})",
+                i,
+                bp.id
+            );
+        }
         let src = Path::new(&params.files[bp.file_id as usize].path);
         let mut sb_bp = sb_target.breakpoint_create_by_location(&src, bp.loc.line, bp.loc.column);
         log::debug!("{:#?}", sb_bp);
@@ -310,8 +329,16 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
      -> Result<()> {
         let _t = process_timer.handle_breakpoint.span();
 
-        let bp_origin = &breakpoints[bp_id.0 as usize];
-        assert_eq!(bp_origin.id, bp_id.0);
+        let bp_origin = breakpoints
+            .get(bp_id.0 as usize)
+            .with_context(|| format!("Internal error: unknown breakpoint id {}", bp_id.0))?;
+        if bp_origin.id != bp_id.0 {
+            anyhow::bail!(
+                "Internal error: breakpoint origin id mismatch (expected {}, got {})",
+                bp_id.0,
+                bp_origin.id
+            );
+        }
         let bp_file_id = bp_origin.file_id;
         let bp_event_type = &bp_origin.breakpoint_type;
         let bp_capture = bp_origin.capture.clone();
@@ -767,7 +794,11 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
 
         if is_function_return || return_immediately {
             // We should have at least one active frame because we're handling a function return
-            assert!(!active_frames.is_empty());
+            if active_frames.is_empty() {
+                anyhow::bail!(
+                    "Internal error: no active frames when handling function return (thread_id={thread_id})"
+                );
+            }
 
             if is_function_return {
                 let active_frame = active_frames.last().unwrap();
@@ -779,9 +810,15 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                 }
             }
 
-            let last_frame = active_frames.pop().expect("Not empty");
-            if !return_immediately {
-                assert!(sb_frame.sp() >= last_frame.stack_pointer);
+            let last_frame = active_frames
+                .pop()
+                .ok_or_else(|| anyhow::anyhow!("Internal error: active frame stack underflow"))?;
+            if !return_immediately && sb_frame.sp() < last_frame.stack_pointer {
+                anyhow::bail!(
+                    "Internal error: stack pointer moved backwards on return (sp={}, last_sp={})",
+                    sb_frame.sp(),
+                    last_frame.stack_pointer
+                );
             }
 
             let mut event = EventStream::function_return(bp_id, thread_id, &last_frame);
@@ -841,7 +878,12 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
             // Parse the breakpoint index from stop description
             // A typical stop reason looks like `breakpoint 1.1`, we want the first `1` out of it.
             let stop_reason_data_count = sb_thread.stop_reason_data_count();
-            assert!(stop_reason_data_count >= 2);
+            if stop_reason_data_count < 2 {
+                anyhow::bail!(
+                    "Unexpected breakpoint stop reason data (count={stop_reason_data_count}); stop_reason={:?}",
+                    sb_thread.stop_reason()
+                );
+            }
             let breakpoint_id = BpId(sb_thread.stop_reason_data_at_index(0) as u32);
             log::debug!("Stop at Breakpoint {breakpoint_id:?}");
             let selected_thread_id = sb_thread.thread_id();
@@ -884,7 +926,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
 
     // Fail to start LLDB
     if exit_code == -1 {
-        panic!("Fail to start LLDB: {}", sb_process.exit_description());
+        anyhow::bail!("Fail to start LLDB: {}", sb_process.exit_description());
     }
 
     std::mem::drop(t_debugger_run);

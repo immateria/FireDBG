@@ -1515,6 +1515,8 @@ async fn run_debugger(
         macos_developer_mode_enabled: Option<bool>,
     }
 
+    let debugger_program = command.get_program().to_string_lossy().to_string();
+
     let mut env_map: BTreeMap<String, String> = BTreeMap::new();
     for (k, v) in command.get_envs() {
         let Some(v) = v else { continue };
@@ -1549,7 +1551,7 @@ async fn run_debugger(
         executable: executable.clone(),
         output: output.clone(),
         command: format!("{:?}", command),
-        env: env_map,
+        env: env_map.clone(),
         lldb: lldb_log,
         macos_developer_mode_enabled: detect_macos_developer_mode_enabled(),
     };
@@ -1565,19 +1567,109 @@ async fn run_debugger(
 
     let status = command.spawn()?.wait()?;
 
+    fn output_basename(output: &str) -> String {
+        output
+            .strip_suffix(".firedbg.ss")
+            .unwrap_or(output)
+            .to_string()
+    }
+
+    fn tail_file(path: &str, max_bytes: u64) -> Option<String> {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let mut f = std::fs::File::open(path).ok()?;
+        let len = f.metadata().ok()?.len();
+        let start = len.saturating_sub(max_bytes);
+        f.seek(SeekFrom::Start(start)).ok()?;
+
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf).ok()?;
+        let s = String::from_utf8_lossy(&buf).to_string();
+        if s.trim().is_empty() {
+            None
+        } else {
+            Some(s)
+        }
+    }
+
+    fn file_info(path: &str) -> Option<String> {
+        let out = ProcessCommand::new("file").arg(path).output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if s.is_empty() { None } else { Some(s) }
+    }
+
+    #[derive(Debug, Serialize)]
+    struct LldbLaunchDiagnostics {
+        debugger_program: String,
+        executable: String,
+        output: String,
+        stdout_path: String,
+        stderr_path: String,
+        stdout_excerpt: Option<String>,
+        stderr_excerpt: Option<String>,
+        dyld_fallback_library_path: Option<String>,
+        lldb_debugserver_path: Option<String>,
+        pythonpath: Option<String>,
+        debugger_file_info: Option<String>,
+        executable_file_info: Option<String>,
+        debugserver_file_info: Option<String>,
+        liblldb_file_info: Option<String>,
+    }
+
     #[derive(Debug, Serialize)]
     struct RunResultLog {
         timestamp_ms: u128,
         ok: bool,
         status_code: Option<i32>,
         status: String,
+        lldb_launch_diagnostics: Option<LldbLaunchDiagnostics>,
     }
+
+    let lldb_launch_diagnostics = if status.success() {
+        None
+    } else {
+        let base = output_basename(&output);
+        let stdout_path = format!("{base}.stdout");
+        let stderr_path = format!("{base}.stderr");
+
+        let dyld_fallback_library_path = env_map.get("DYLD_FALLBACK_LIBRARY_PATH").cloned();
+        let lldb_debugserver_path = env_map.get("LLDB_DEBUGSERVER_PATH").cloned();
+        let pythonpath = env_map.get("PYTHONPATH").cloned();
+
+        let liblldb_file_info = dyld_fallback_library_path.as_ref().and_then(|p| {
+            let p = p.trim_end_matches('/');
+            file_info(&format!("{p}/liblldb.dylib"))
+        });
+
+        Some(LldbLaunchDiagnostics {
+            debugger_program: debugger_program.clone(),
+            executable: executable.clone(),
+            output: output.clone(),
+            stdout_path: stdout_path.clone(),
+            stderr_path: stderr_path.clone(),
+            stdout_excerpt: tail_file(&stdout_path, 8192),
+            stderr_excerpt: tail_file(&stderr_path, 8192),
+            dyld_fallback_library_path,
+            lldb_debugserver_path: lldb_debugserver_path.clone(),
+            pythonpath,
+            debugger_file_info: file_info(&debugger_program),
+            executable_file_info: file_info(&executable),
+            debugserver_file_info: lldb_debugserver_path
+                .as_deref()
+                .and_then(file_info),
+            liblldb_file_info,
+        })
+    };
 
     let post = RunResultLog {
         timestamp_ms: timestamp,
         ok: status.success(),
         status_code: status.code(),
         status: status.to_string(),
+        lldb_launch_diagnostics,
     };
 
     if let Err(e) =
