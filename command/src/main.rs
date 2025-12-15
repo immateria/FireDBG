@@ -134,6 +134,9 @@ enum SubCommand {
     Doctor {
         #[structopt(long = "json-format", alias = "json")]
         json_format: bool,
+        /// Run additional (slower) checks
+        #[structopt(long)]
+        deep: bool,
     },
     #[structopt(setting = structopt::clap::AppSettings::Hidden)]
     ListConfig {
@@ -421,8 +424,8 @@ async fn main() -> Result<()> {
 
             command.spawn()?.wait()?;
         }
-        SubCommand::Doctor { json_format } => {
-            doctor(workspace, firedbg_home, json_format)
+        SubCommand::Doctor { json_format, deep } => {
+            doctor(workspace, firedbg_home, json_format, deep)
                 .context("Fail to run doctor")?;
         }
         SubCommand::ListConfig { json_format } => {
@@ -656,10 +659,19 @@ async fn check_firedbg_version_updated(workspace: &Workspace) -> Result<()> {
     Ok(())
 }
 
-fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool) -> Result<()> {
+fn doctor(
+    workspace: &Workspace,
+    firedbg_home: Option<String>,
+    json_format: bool,
+    deep: bool,
+) -> Result<()> {
     #[derive(Debug, Serialize)]
     struct DoctorReport {
         workspace_root: String,
+        workspace_firedbg_target_dir: String,
+        workspace_firedbg_target_writable: bool,
+        workspace_firedbg_target_writable_error: Option<String>,
+        default_output_example: String,
         rustc: Option<String>,
         cargo: Option<String>,
         cargo_bin: Option<String>,
@@ -671,7 +683,14 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
         lldb: Option<LldbReport>,
         pythonpath_effective: Option<String>,
         code: Option<CommandReport>,
+        deep_checks: Option<DeepReport>,
         hints: Vec<String>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct DeepReport {
+        rustc_smoke_compile: bool,
+        rustc_smoke_compile_error: Option<String>,
     }
 
     #[derive(Debug, Serialize)]
@@ -725,6 +744,54 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
     let using_cargo_run = env::var("CARGO_PKG_NAME").is_ok();
 
     let mut hints: Vec<String> = Vec::new();
+
+    let workspace_firedbg_target_dir = workspace.get_firedbg_target_dir();
+    let default_output_example = format!(
+        "{}/<target>-<timestamp>.firedbg.ss",
+        workspace_firedbg_target_dir
+    );
+
+    let (workspace_firedbg_target_writable, workspace_firedbg_target_writable_error) = {
+        let mut err: Option<String> = None;
+        let mut ok = false;
+
+        if let Err(e) = fs::create_dir_all(&workspace_firedbg_target_dir) {
+            err = Some(e.to_string());
+        } else {
+            let ts = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            let test_path = Path::new(&workspace_firedbg_target_dir)
+                .join(format!(".doctor-write-test-{ts}"));
+
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&test_path)
+            {
+                Ok(_) => {
+                    let _ = fs::remove_file(&test_path);
+                    ok = true;
+                }
+                Err(e) => {
+                    err = Some(e.to_string());
+                }
+            }
+        }
+
+        (ok, err)
+    };
+
+    if !workspace_firedbg_target_writable {
+        let e = workspace_firedbg_target_writable_error
+            .as_deref()
+            .unwrap_or("unknown error");
+        hints.push(format!(
+            "Workspace output directory is not writable: `{}` ({e})",
+            workspace_firedbg_target_dir
+        ));
+    }
 
     if rustc.is_none() || cargo.is_none() {
         hints.push("Install Rust via rustup (ensures both `rustc` and `cargo` are on PATH)".to_string());
@@ -854,8 +921,64 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
         }
     }
 
+    let deep_checks = if deep {
+        // Rustc smoke compile: compile a tiny main into a temp dir.
+        let mut ok = false;
+        let mut err: Option<String> = None;
+
+        if rustc.is_none() {
+            err = Some("rustc not found".to_string());
+        } else {
+            let tmp = env::temp_dir().join("firedbg-doctor");
+            let _ = fs::create_dir_all(&tmp);
+
+            let src = tmp.join("doctor_smoke.rs");
+            let out = tmp.join("doctor_smoke_bin");
+            if let Err(e) = fs::write(&src, "fn main() { println!(\"firedbg doctor smoke\"); }\n") {
+                err = Some(e.to_string());
+            } else {
+                match ProcessCommand::new("rustc")
+                    .arg("--edition=2021")
+                    .arg(&src)
+                    .arg("-o")
+                    .arg(&out)
+                    .output()
+                {
+                    Ok(output) => {
+                        if output.status.success() {
+                            ok = true;
+                        } else {
+                            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                            err = Some(if stderr.is_empty() {
+                                format!("rustc exited with {:?}", output.status.code())
+                            } else {
+                                stderr
+                            });
+                        }
+                    }
+                    Err(e) => err = Some(e.to_string()),
+                }
+            }
+        }
+
+        if !ok {
+            hints.push("Deep check: rustc could not compile a tiny program. Verify Rust toolchain installation and permissions.".to_string());
+        }
+
+        Some(DeepReport {
+            rustc_smoke_compile: ok,
+            rustc_smoke_compile_error: err,
+        })
+    } else {
+        None
+    };
+
     let report = DoctorReport {
         workspace_root: workspace.root_dir.clone(),
+        workspace_firedbg_target_dir: workspace_firedbg_target_dir.clone(),
+        workspace_firedbg_target_writable,
+        workspace_firedbg_target_writable_error,
+        default_output_example,
         rustc,
         cargo,
         cargo_bin,
@@ -867,6 +990,7 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
         lldb,
         pythonpath_effective,
         code: Some(code),
+        deep_checks,
         hints,
     };
 
@@ -876,6 +1000,21 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
     }
 
     console::status("Workspace", &report.workspace_root);
+    console::status("Output dir", &report.workspace_firedbg_target_dir);
+    if report.workspace_firedbg_target_writable {
+        console::status("Output dir", "writable");
+    } else {
+        let e = report
+            .workspace_firedbg_target_writable_error
+            .as_deref()
+            .unwrap_or("unknown error");
+        console::warn("Output dir", &format!("not writable ({e})"));
+    }
+    console::status("Output", &report.default_output_example);
+
+    if deep {
+        console::status("Deep", "enabled");
+    }
 
     if let Some(v) = &report.rustc {
         console::status("rustc", v);
