@@ -56,7 +56,7 @@ fn compile_rust_program(content: &str) -> anyhow::Result<String> {
 }
 
 fn execute_rust_program(obj: &str) -> anyhow::Result<String> {
-    let result = std::process::Command::new(&obj)
+    let result = std::process::Command::new(obj)
         .stderr(Stdio::inherit())
         .output()?;
     if result.status.code().context("run")? != 0 {

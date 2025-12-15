@@ -44,13 +44,14 @@ impl SBCommandInterpreter {
         range: Option<(u32, u32)>,
     ) -> Option<(String, Vec<String>)> {
         unsafe {
-            let line_start = if current_line.is_empty() {
-                ptr::null() // "".as_ptr() returns 0x00000001, which doesn't sit well with HandleCompletion()
+            let line_start: *const c_char = if current_line.is_empty() {
+                // "".as_ptr() returns 0x00000001, which doesn't sit well with HandleCompletion()
+                ptr::null()
             } else {
-                current_line.as_ptr()
+                current_line.as_ptr() as *const c_char
             };
-            let line_end = line_start.offset(current_line.len() as isize);
-            let cursor = line_start.offset(cursor_pos as isize);
+            let line_end = line_start.add(current_line.len());
+            let cursor = line_start.add(cursor_pos as usize);
             let (first_match, max_matches) = match range {
                 None => (0, -1),
                 Some((first_match, max_matches)) => (first_match as c_int, max_matches as c_int),
@@ -62,7 +63,7 @@ impl SBCommandInterpreter {
                      mut matches as "SBStringList"] -> i32 as "int" {
                 return self->HandleCompletion(line_start, cursor, line_end, first_match, max_matches, matches);
             });
-            if rc <= 0 || matches.len() == 0 {
+            if rc <= 0 || matches.is_empty() {
                 None
             } else {
                 let mut iter = matches.iter();

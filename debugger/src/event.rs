@@ -20,7 +20,7 @@ pub struct ActiveFrame {
 impl EventStream {
     pub fn read_from(source: Bytes) -> Event {
         let mut reader = Reader::new();
-        assert!(source.len() > 0);
+        assert!(!source.is_empty());
         let event = match source.get(0) {
             b'B' => {
                 let mut i = 1;

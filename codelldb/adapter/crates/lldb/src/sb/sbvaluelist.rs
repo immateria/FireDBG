@@ -10,6 +10,10 @@ impl SBValueList {
             return self->GetSize();
         })
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub fn value_at_index(&self, index: u32) -> SBValue {
         cpp!(unsafe [self as "SBValueList*", index as "uint32_t"] -> SBValue as "SBValue" {
             return self->GetValueAtIndex(index);

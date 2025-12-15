@@ -211,7 +211,7 @@ impl Processor for DatabaseSink {
                 _ => anyhow::bail!("Unexpected stream key {}", message.stream_key()),
             }
             self.count += 1;
-            flush |= self.count % 10000 == 0;
+            flush |= self.count.is_multiple_of(10000);
         }
 
         insert_files(&self.db, files.into_iter().map(translate::source_file)).await?;

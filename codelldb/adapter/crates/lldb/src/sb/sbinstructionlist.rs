@@ -10,6 +10,10 @@ impl SBInstructionList {
             return self->GetSize();
         })
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub fn instruction_at_index(&self, index: u32) -> SBInstruction {
         cpp!(unsafe [self as "SBInstructionList*", index as "uint32_t"] -> SBInstruction as "SBInstruction" {
             return self->GetInstructionAtIndex(index);

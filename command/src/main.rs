@@ -211,7 +211,7 @@ async fn main() -> Result<()> {
             let (package, binary) = if let Some(binary_name) = binary_name {
                 find_binary(&binary_name)
             } else if binary_names.len() == 1 {
-                find_binary(&binary_names[0])
+                find_binary(binary_names[0])
             } else {
                 list()
             };
@@ -449,7 +449,7 @@ fn parse_firedbg_config(workspace: &Workspace) -> Result<cfg::Config> {
     let config_file_path = &format!("{workspace_root_dir}/firedbg.toml");
     let config_file_path = Path::new(config_file_path);
     let config = if config_file_path.exists() && config_file_path.is_file() {
-        let config_file_content = fs::read_to_string(&config_file_path).context("Fail to read")?;
+        let config_file_content = fs::read_to_string(config_file_path).context("Fail to read")?;
         toml::from_str(&config_file_content).context("Fail to parse TOML")?
     } else {
         console::warn(
@@ -586,7 +586,7 @@ fn workspace_firedbg_version(workspace: &Workspace) -> Result<Option<cfg::Versio
     let version_path = &workspace.get_version_path();
     let version_path = Path::new(version_path);
     let version = if version_path.exists() && version_path.is_file() {
-        let file_content = fs::read_to_string(&version_path).context("Fail to read")?;
+        let file_content = fs::read_to_string(version_path).context("Fail to read")?;
         Some(toml::from_str(&file_content).context("Fail to parse TOML")?)
     } else {
         None
@@ -1007,10 +1007,8 @@ fn doctor(
                 hints.push("LLDB was detected but its python dir does not exist. This usually means `lldb -P` returned a stale path; reinstall LLDB / Xcode tools.".to_string());
             }
 
-            if p.debugserver.is_none() {
-                if cfg!(target_os = "macos") {
-                    hints.push("macOS: install Xcode Command Line Tools (`xcode-select --install`) or full Xcode so `lldb-server`/`debugserver` is available".to_string());
-                }
+            if p.debugserver.is_none() && cfg!(target_os = "macos") {
+                hints.push("macOS: install Xcode Command Line Tools (`xcode-select --install`) or full Xcode so `lldb-server`/`debugserver` is available".to_string());
             }
         }
         None => {
@@ -1253,6 +1251,7 @@ async fn run_binary(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_test(
     workspace: &Workspace,
     trace_cfg: &[(&Package, cfg::Trace)],
@@ -1358,6 +1357,7 @@ async fn run_example(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_debugger(
     workspace: &Workspace,
     trace_cfg: &[(&Package, cfg::Trace)],
@@ -1851,7 +1851,7 @@ async fn list_target(
     };
 
     if json_format {
-        println!("{}", serde_json::json!(target).to_string());
+        println!("{}", serde_json::json!(target));
     } else {
         if !target.binaries.is_empty() {
             println!("\nAvailable binaries are:");
@@ -1927,7 +1927,7 @@ fn detect_lldb_paths() -> Option<LldbPaths> {
     let commands: Vec<_> = versions
         .iter()
         .map(|v| format!("lldb-{v}"))
-        .chain(["lldb".to_string()].into_iter())
+        .chain(["lldb".to_string()])
         .collect();
 
     for binary in commands {

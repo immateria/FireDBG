@@ -97,10 +97,10 @@ pub fn event(timestamp: Timestamp, event: SrcEvent) -> Event {
             let mut is_error = false;
             let _ = write!(pretty, "(");
             if !locals.is_empty() {
-                let _ = write!(pretty, "\n");
+                let _ = writeln!(pretty);
             }
             for (name, value) in locals {
-                let _ = write!(pretty, "{name}: {value:#},\n");
+                let _ = writeln!(pretty, "{name}: {value:#},");
                 is_error |= value_is_error(&value);
             }
             let _ = write!(pretty, ")");
@@ -145,10 +145,10 @@ pub fn event(timestamp: Timestamp, event: SrcEvent) -> Event {
             let mut is_error = false;
             let _ = write!(pretty, "(");
             if !arguments.is_empty() {
-                let _ = write!(pretty, "\n");
+                let _ = writeln!(pretty);
             }
             for (name, value) in arguments {
-                let _ = write!(pretty, "{name}: {value:#},\n");
+                let _ = writeln!(pretty, "{name}: {value:#},");
                 is_error |= value_is_error(&value);
             }
             let _ = write!(pretty, ")");
@@ -262,7 +262,7 @@ pub fn allocation(bp: SrcAllocation) -> Allocation {
 
 fn value_is_error(value: &RValue) -> bool {
     if value.is_result() {
-        value.result_variant().is_err()
+        value.result_is_err()
     } else {
         false
     }

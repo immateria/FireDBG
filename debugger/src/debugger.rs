@@ -118,7 +118,7 @@ impl FunctionCache {
         self.cache.get(sb_fn_id)
     }
 
-    fn insert<'a, F>(&'a mut self, sb_fn_id: &SBFunctionId, get_type: F)
+    fn insert<F>(&mut self, sb_fn_id: &SBFunctionId, get_type: F)
     where
         F: FnOnce() -> SBType,
     {
@@ -258,7 +258,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
             );
         }
         let src = Path::new(&params.files[bp.file_id as usize].path);
-        let mut sb_bp = sb_target.breakpoint_create_by_location(&src, bp.loc.line, bp.loc.column);
+        let mut sb_bp = sb_target.breakpoint_create_by_location(src, bp.loc.line, bp.loc.column);
         log::debug!("{:#?}", sb_bp);
         let mut try_loc_end = false;
         for sb_bp_loc in sb_bp.locations() {
@@ -289,7 +289,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
         if try_loc_end {
             sb_target.breakpoint_delete(breakpoints.len() as u32);
             if let Some(loc_end) = &bp.loc_end {
-                sb_bp = sb_target.breakpoint_create_by_location(&src, loc_end.line, loc_end.column);
+                sb_bp = sb_target.breakpoint_create_by_location(src, loc_end.line, loc_end.column);
                 log::debug!("{:#?}", sb_bp);
                 if log::log_enabled!(log::Level::Debug) {
                     for sb_bp_loc in sb_bp.locations() {
@@ -451,7 +451,9 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                 // Such that when we first break into the function, some variables are not yet written,
                 // causing us capturing garbage.
                 // To mitigate, we have to guess the extent of the prologue ourselves.
-                if !functions_disassembled.contains_key(&sb_frame.pc()) {
+                if let std::collections::hash_map::Entry::Vacant(e) =
+                    functions_disassembled.entry(sb_frame.pc())
+                {
                     let prologue_byte_size = sb_function.prologue_byte_size() as u64;
                     let mut prologue_address =
                         sb_function.start_address().file_address() as u64 + prologue_byte_size;
@@ -459,18 +461,17 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                     // if we were in the 'designated' prologue
                     let mut try_extend_prologue = pc_file_address == prologue_address
                         // but it only matters if there are arguments
-                        && sb_frame
+                        && !sb_frame
                             .variables(&VariableOptions {
                                 arguments: true,
                                 locals: false,
                                 statics: false,
                                 in_scope_only: true,
                             })
-                            .len()
-                            > 0;
+                            .is_empty();
                     if try_extend_prologue {
                         // translate from file address to pc address
-                        prologue_address = sb_frame.pc() - pc_file_address + prologue_address;
+                        prologue_address += sb_frame.pc() - pc_file_address;
                     }
                     // println!("pc_address = {}, prologue_address = {}", crate::Addr::new(&sb_frame.pc().to_ne_bytes()), crate::Addr::new(&prologue_address.to_ne_bytes()));
                     let mut extended_prologue = 0;
@@ -479,7 +480,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                     for line in sb_frame.disassemble().unwrap_or_default().lines() {
                         // println!("{line}");
                         let (inst, operand) = if let Some(inst) = line.split(": ").nth(1) {
-                            parse_asm(inst.split("; ").nth(0).expect("asm stmt").trim())
+                            parse_asm(inst.split("; ").next().expect("asm stmt").trim())
                         } else {
                             continue;
                         };
@@ -505,7 +506,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                             }
                         }
                         if inst == RET {
-                            if line.split("0x").nth(0).expect("Before addr").contains("->") {
+                            if line.split("0x").next().expect("Before addr").contains("->") {
                                 // -> means the current instruction
                                 return_immediately = true;
                                 // there is no need to set a duplicate breakpoint
@@ -532,7 +533,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                             }
                         }
                     }
-                    functions_disassembled.insert(sb_frame.pc(), FuncAsm { extended_prologue });
+                    e.insert(FuncAsm { extended_prologue });
                 }
                 let func_info = functions_disassembled.get(&sb_frame.pc()).expect("Cached");
                 if func_info.extended_prologue > 0 {
@@ -597,10 +598,11 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                                 }
                                 let var = var.unwrap();
                                 // this function is `#[inline(always)]` so each call site is unique
-                                if !functions_disassembled.contains_key(&sb_frame.pc()) {
+                                if let std::collections::hash_map::Entry::Vacant(e) =
+                                    functions_disassembled.entry(sb_frame.pc())
+                                {
                                     let extended_prologue = 0;
-                                    functions_disassembled
-                                        .insert(sb_frame.pc(), FuncAsm { extended_prologue });
+                                    e.insert(FuncAsm { extended_prologue });
                                     log::trace!("exchange_malloc at {}", sb_frame.pc());
                                     if var.byte_size() == 0 {
                                         // TODO how to handle zero-sized types?
@@ -608,7 +610,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                                     }
                                     // println!("{:?}", sb_frame.symbol_context()); // is this useful?
                                     for line in sb_frame.disassemble().unwrap_or_default().lines() {
-                                        if line.split("0x").nth(0).expect("Addr").contains("->") {
+                                        if line.split("0x").next().expect("Addr").contains("->") {
                                             // set a breakpoint after the allocation to obtain the address
                                             let addr = parse_addr(line)?;
                                             if !breakpoint_addresses.contains_key(&addr) {
@@ -826,7 +828,7 @@ fn run(mut params: DebuggerParams, mut producer: SeaProducer) -> Result<()> {
                 &mut event,
                 rwriter,
                 &sb_target,
-                &sb_process,
+                sb_process,
                 &sb_frame,
                 fn_cache.get(&last_frame.function_id).expect("Cached"),
             )
@@ -1283,7 +1285,7 @@ fn parse_addr(line: &str) -> Result<u64> {
         .nth(1)
         .expect("Starts with `0x`")
         .split_ascii_whitespace()
-        .nth(0)
+        .next()
         .expect("Read until space");
     let res =
         u64::from_str_radix(addr, 16).with_context(|| format!("Invalid address: `{addr}`"))?;

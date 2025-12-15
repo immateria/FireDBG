@@ -14,10 +14,9 @@ pub fn wildcard_match(template: &str, against: &str) -> bool {
         return false;
     }
     let mut index = parts[0].len().max(1);
-    for i in 1..parts.len() - 1 {
-        let part = parts[i];
+    for part in &parts[1..parts.len() - 1] {
         if let Some(at) = against[index..].find(part) {
-            if i > 0 && at == 0 {
+            if at == 0 {
                 // .. means one or more char
                 return false;
             }

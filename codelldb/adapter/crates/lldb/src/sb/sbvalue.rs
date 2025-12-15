@@ -261,7 +261,7 @@ impl SBValue {
                 return self->GetIndexOfChildWithName(name);
             })
         });
-        if index != std::u32::MAX {
+        if index != u32::MAX {
             Some(index)
         } else {
             None

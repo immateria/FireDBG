@@ -18,6 +18,10 @@ impl SBStream {
             return self->GetSize();
         })
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub fn as_ptr(&self) -> *const u8 {
         cpp!(unsafe [self as "SBStream*"] -> *const c_char as "const char*" {
             return self->GetData();

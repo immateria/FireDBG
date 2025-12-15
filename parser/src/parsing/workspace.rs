@@ -26,7 +26,7 @@ fn parse_packages(raw_packages: Vec<raw::Package>, workspace_root_dir: &str) -> 
             let package_id = &raw_package.id;
             // Is local package
             if package_id.starts_with("path+file://") {
-                let root_dir = get_package_root_dir(&package_id);
+                let root_dir = get_package_root_dir(package_id);
                 // Is within the root workspace directory
                 if root_dir.starts_with(workspace_root_dir) {
                     return true;
@@ -39,7 +39,7 @@ fn parse_packages(raw_packages: Vec<raw::Package>, workspace_root_dir: &str) -> 
             let has_lib = raw_package
                 .targets
                 .iter()
-                .any(|target| target.kind.contains(&format!("lib")));
+                .any(|target| target.kind.contains(&"lib".to_string()));
             let mut dependencies = parse_dependencies(raw_package.dependencies);
             dependencies.sort_by(|a, b| a.name.cmp(&b.name));
 
@@ -87,7 +87,7 @@ fn parse_dependencies(raw_dependencies: Vec<raw::Dependency>) -> Vec<Dependency>
 fn parse_binaries(raw_target: Vec<raw::Target>) -> Vec<Binary> {
     raw_target
         .into_iter()
-        .filter(|raw_target| raw_target.kind.contains(&format!("bin")))
+        .filter(|raw_target| raw_target.kind.contains(&"bin".to_string()))
         .map(|raw_target| Binary {
             name: raw_target.name,
             src_path: raw_target.src_path,
@@ -99,7 +99,7 @@ fn parse_binaries(raw_target: Vec<raw::Target>) -> Vec<Binary> {
 fn parse_tests(raw_target: Vec<raw::Target>) -> Vec<Test> {
     raw_target
         .into_iter()
-        .filter(|raw_target| raw_target.kind.contains(&format!("test")))
+        .filter(|raw_target| raw_target.kind.contains(&"test".to_string()))
         .map(|raw_target| Test {
             name: raw_target.name,
             src_path: raw_target.src_path,
@@ -111,7 +111,7 @@ fn parse_tests(raw_target: Vec<raw::Target>) -> Vec<Test> {
 fn parse_examples(raw_target: Vec<raw::Target>) -> Vec<Example> {
     raw_target
         .into_iter()
-        .filter(|raw_target| raw_target.kind.contains(&format!("example")))
+        .filter(|raw_target| raw_target.kind.contains(&"example".to_string()))
         .map(|raw_target| Example {
             name: raw_target.name,
             src_path: raw_target.src_path,

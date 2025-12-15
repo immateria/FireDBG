@@ -7,6 +7,12 @@ cpp_class!(pub unsafe struct SBLaunchInfo as "SBLaunchInfo");
 
 unsafe impl Send for SBLaunchInfo {}
 
+impl Default for SBLaunchInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SBLaunchInfo {
     pub fn new() -> SBLaunchInfo {
         cpp!(unsafe [] -> SBLaunchInfo as "SBLaunchInfo" {

@@ -55,12 +55,10 @@ async fn main() -> Result<()> {
         };
         if is_fn_call {
             event.write_unit_v("value");
+        } else if state.i.is_multiple_of(6) {
+            event.write_opaque_v("return_value");
         } else {
-            if state.i % 6 == 0 {
-                event.write_opaque_v("return_value");
-            } else {
-                event.write_unit_v("return_value");
-            }
+            event.write_unit_v("return_value");
         }
         producer.send(event)?;
         if state.i == 2500 {

@@ -7,7 +7,7 @@ use crate::{
 use lldb::{IsValid, SBAddress, SBData, SBFrame, SBProcess, SBTarget, SBType, SBValue, TypeClass};
 use std::{ops::Deref, rc::Rc};
 
-pub const RETVAL: &'static str = "return_value";
+pub const RETVAL: &str = "return_value";
 
 pub(super) fn write_return_value(
     event: &mut Bytes,
@@ -451,11 +451,11 @@ pub(super) fn write_return_value(
     let enumerate_from_rax = |sb_type: &SBType| -> Result<Bytes, WriteErr> {
         if sb_type.byte_size() <= 8 {
             let data = create_data_from_u64(read_u64(&rax())?)?;
-            let value = sb_target.create_value_from_data(RETVAL, &data, &sb_type);
+            let value = sb_target.create_value_from_data(RETVAL, &data, sb_type);
             if !value.is_valid() {
                 return Err(WriteErr);
             }
-            let (typename, variant) = enumerate_value(&sb_type, &value)?;
+            let (typename, variant) = enumerate_value(sb_type, &value)?;
             Ok(rwriter.enumerate_v(typename, variant))
         } else {
             Err(WriteErr)
@@ -553,12 +553,12 @@ pub(super) fn write_return_value(
             panic!("There shouldn't be any naked str");
         }
         ValueType::Reference(_) => {
-            let value = get_reference_from_rax_rdx(rwriter, &value_type, &return_type)?;
+            let value = get_reference_from_rax_rdx(rwriter, &value_type, return_type)?;
             event.write_value(rwriter, RETVAL, value.as_bytes());
             Ok(())
         }
         ValueType::DynRef(_) => {
-            let value = dyn_ref_value_from_rax_rdx(rwriter, &value_type, &return_type)?;
+            let value = dyn_ref_value_from_rax_rdx(rwriter, &value_type, return_type)?;
             event.write_value(rwriter, RETVAL, value.as_bytes());
             Ok(())
         }
@@ -733,297 +733,288 @@ pub(super) fn write_return_value(
             }
             let left = boildown(rc_into_inner(left)?, left_type.clone())?;
             let right = boildown(rc_into_inner(right)?, right_type.clone())?;
-            match (left.size_of(), right.size_of()) {
-                (SizeOfType::Sized(left_size), SizeOfType::Sized(right_size)) => {
-                    if left_size == 0 && right_size == 0 {
-                        // Result<(), ()>
-                        log::trace!("{} rax only", return_type.name());
-                        let res = read_u64(&rax())?;
-                        event.write_result(
-                            rwriter,
-                            RETVAL,
-                            return_type.name(),
-                            res == 0,
-                            rwriter.unit_v(),
-                        );
-                        return Ok(());
-                    } else if (matches!(left, ValueType::bool) && right_size == 0)
-                        || (matches!(right, ValueType::bool) && left_size == 0)
-                    {
-                        // this is a Rust trick for Result<bool, ()> or Result<(), bool>
-                        log::trace!("{} rax only", return_type.name());
-                        let res = read_u64(&rax())? & 0b11;
-                        let val = match res {
-                            0 => rwriter.prim_v("bool", &[0]),
-                            1 => rwriter.prim_v("bool", &[1]),
-                            2 => rwriter.unit_v(),
-                            _ => return Err(WriteErr),
-                        };
-                        event.write_result(
-                            rwriter,
-                            RETVAL,
-                            return_type.name(),
-                            (res == 2) == (left_size == 0),
-                            val,
-                        );
-                        return Ok(());
-                    } else if (matches!(left, ValueType::char) && right_size == 0)
-                        || (matches!(right, ValueType::char) && left_size == 0)
-                    {
-                        // this is a Rust trick for Result<char, ()> or Result<(), char>
-                        log::trace!("{} rax only", return_type.name());
-                        let res = read_u64(&rax())?;
-                        let is_char = res <= (char::MAX as u64);
-                        let val = if is_char {
-                            rwriter.prim_v("char", &res.to_ne_bytes()[..4])
+            if let (SizeOfType::Sized(left_size), SizeOfType::Sized(right_size)) =
+                (left.size_of(), right.size_of())
+            {
+                if left_size == 0 && right_size == 0 {
+                    // Result<(), ()>
+                    log::trace!("{} rax only", return_type.name());
+                    let res = read_u64(&rax())?;
+                    event.write_result(
+                        rwriter,
+                        RETVAL,
+                        return_type.name(),
+                        res == 0,
+                        rwriter.unit_v(),
+                    );
+                    return Ok(());
+                } else if (matches!(left, ValueType::bool) && right_size == 0)
+                    || (matches!(right, ValueType::bool) && left_size == 0)
+                {
+                    // this is a Rust trick for Result<bool, ()> or Result<(), bool>
+                    log::trace!("{} rax only", return_type.name());
+                    let res = read_u64(&rax())? & 0b11;
+                    let val = match res {
+                        0 => rwriter.prim_v("bool", &[0]),
+                        1 => rwriter.prim_v("bool", &[1]),
+                        2 => rwriter.unit_v(),
+                        _ => return Err(WriteErr),
+                    };
+                    event.write_result(
+                        rwriter,
+                        RETVAL,
+                        return_type.name(),
+                        (res == 2) == (left_size == 0),
+                        val,
+                    );
+                    return Ok(());
+                } else if (matches!(left, ValueType::char) && right_size == 0)
+                    || (matches!(right, ValueType::char) && left_size == 0)
+                {
+                    // this is a Rust trick for Result<char, ()> or Result<(), char>
+                    log::trace!("{} rax only", return_type.name());
+                    let res = read_u64(&rax())?;
+                    let is_char = res <= (char::MAX as u64);
+                    let val = if is_char {
+                        rwriter.prim_v("char", &res.to_ne_bytes()[..4])
+                    } else {
+                        rwriter.unit_v()
+                    };
+                    event.write_result(
+                        rwriter,
+                        RETVAL,
+                        return_type.name(),
+                        is_char == (right_size == 0),
+                        val,
+                    );
+                    return Ok(());
+                } else if (matches!(left, ValueType::Slice(_)) && right_size == 0)
+                    || (matches!(right, ValueType::Slice(_)) && left_size == 0)
+                {
+                    // this is a Rust trick for Result<&[T], ()> or Result<(), &[T]>
+                    log::trace!("{} rax, rdx", return_type.name());
+                    let rax = read_u64(&rax())?;
+                    let val = if rax != 0 {
+                        if left_size != 0 {
+                            get_slice_from_rax_rdx(rwriter, &left, &left_type)?
                         } else {
-                            rwriter.unit_v()
-                        };
-                        event.write_result(
-                            rwriter,
-                            RETVAL,
-                            return_type.name(),
-                            is_char == (right_size == 0),
-                            val,
-                        );
-                        return Ok(());
-                    } else if (matches!(left, ValueType::Slice(_)) && right_size == 0)
-                        || (matches!(right, ValueType::Slice(_)) && left_size == 0)
-                    {
-                        // this is a Rust trick for Result<&[T], ()> or Result<(), &[T]>
-                        log::trace!("{} rax, rdx", return_type.name());
-                        let rax = read_u64(&rax())?;
-                        let val = if rax != 0 {
-                            if left_size != 0 {
-                                get_slice_from_rax_rdx(rwriter, &left, &left_type)?
+                            get_slice_from_rax_rdx(rwriter, &right, &right_type)?
+                        }
+                    } else {
+                        rwriter.unit_v()
+                    };
+                    event.write_result(
+                        rwriter,
+                        RETVAL,
+                        return_type.name(),
+                        (rax == 0) == (left_size == 0),
+                        val,
+                    );
+                    return Ok(());
+                } else if (matches!(left, ValueType::i128 | ValueType::u128) && left == right)
+                    || (matches!(left, ValueType::i128 | ValueType::u128) && right_size == 0)
+                    || (left_size == 0 && matches!(right, ValueType::i128 | ValueType::u128))
+                // but not Result<i128, u128>
+                {
+                    // Result<i128, i128>, Result<u128, u128>, Result<i128, ()>, Result<(), u128>
+                    log::trace!("{} rcx, rdx", return_type.name());
+                    let (res, v) = {
+                        #[cfg(target_arch = "x86_64")]
+                        {
+                            let rdx_u64 = read_u64(&rdx())?;
+                            let rcx_u64 = read_u64(&rcx())?;
+                            let res_is_rcx =
+                                (rdx_u64 == 0 && rcx_u64 == 1) || (rdx_u64 == 0 && rcx_u64 == 0);
+                            let res = if res_is_rcx { rcx_u64 } else { rdx_u64 };
+                            let v = if res_is_rcx {
+                                [reg("rsi"), reg("r8")]
                             } else {
-                                get_slice_from_rax_rdx(rwriter, &right, &right_type)?
-                            }
-                        } else {
-                            rwriter.unit_v()
-                        };
-                        event.write_result(
-                            rwriter,
-                            RETVAL,
-                            return_type.name(),
-                            (rax == 0) == (left_size == 0),
-                            val,
-                        );
-                        return Ok(());
-                    } else if (matches!(left, ValueType::i128 | ValueType::u128) && left == right)
-                        || (matches!(left, ValueType::i128 | ValueType::u128) && right_size == 0)
-                        || (left_size == 0 && matches!(right, ValueType::i128 | ValueType::u128))
-                    // but not Result<i128, u128>
-                    {
-                        // Result<i128, i128>, Result<u128, u128>, Result<i128, ()>, Result<(), u128>
-                        log::trace!("{} rcx, rdx", return_type.name());
-                        let (res, v) = {
-                            #[cfg(target_arch = "x86_64")]
-                            {
-                                let rdx_u64 = read_u64(&rdx())?;
-                                let rcx_u64 = read_u64(&rcx())?;
-                                let res_is_rcx = (rdx_u64 == 0 && rcx_u64 == 1)
-                                    || (rdx_u64 == 0 && rcx_u64 == 0);
-                                let res = if res_is_rcx { rcx_u64 } else { rdx_u64 };
-                                let v = if res_is_rcx {
-                                    [reg("rsi"), reg("r8")]
-                                } else {
-                                    [reg("rdi"), reg("r8")]
-                                };
-                                (res, &values_to_bytes::<16, _>(v.into_iter(), 2)?)
-                            }
-                            #[cfg(target_arch = "aarch64")]
-                            {
-                                let res = read_u64(&rax())?;
-                                let v = [reg("x2"), reg("x3")];
-                                (res, &values_to_bytes::<16, _>(v.into_iter(), 2)?)
-                            }
-                        };
-                        let val = if left_size == 0 && res == 0 {
-                            rwriter.unit_v()
-                        } else if right_size == 0 && res == 1 {
-                            rwriter.unit_v()
-                        } else {
-                            let ty = if left.is_integer() {
-                                left.primitive_name()
-                            } else {
-                                right.primitive_name()
+                                [reg("rdi"), reg("r8")]
                             };
-                            rwriter.prim_v(ty, v)
-                        };
-                        event.write_result(rwriter, RETVAL, return_type.name(), res == 0, val);
-                        return Ok(());
-                    } else if (left_size == 0 && right.is_str())
-                        || (left.is_str() && right_size == 0)
-                    {
-                        // Result<(), &str>, Result<&str, ()>
-                        // pointer is non-zero, so discriminant and data is packed together
-                        log::trace!("{} rax, rdx", return_type.name());
-                        let addr = read_u64(&rax())?;
-                        let val = if addr != 0 {
-                            let len = read_u64(&rdx())? as usize;
-                            let bytes = read_str_from_addr(addr, len)?;
-                            rwriter.strlit_v(&bytes)
+                            (res, &values_to_bytes::<16, _>(v.into_iter(), 2)?)
+                        }
+                        #[cfg(target_arch = "aarch64")]
+                        {
+                            let res = read_u64(&rax())?;
+                            let v = [reg("x2"), reg("x3")];
+                            (res, &values_to_bytes::<16, _>(v.into_iter(), 2)?)
+                        }
+                    };
+                    let val = if (left_size == 0 && res == 0) || (right_size == 0 && res == 1) {
+                        rwriter.unit_v()
+                    } else {
+                        let ty = if left.is_integer() {
+                            left.primitive_name()
                         } else {
-                            rwriter.unit_v()
+                            right.primitive_name()
                         };
-                        event.write_result(
-                            rwriter,
-                            RETVAL,
-                            return_type.name(),
-                            (addr == 0) == (left_size == 0),
-                            val,
-                        );
-                        return Ok(());
-                    } else if (matches!(left, ValueType::DynRef(_)) && right_size == 0)
-                        || (left_size == 0 && matches!(right, ValueType::DynRef(_)))
-                    {
-                        log::trace!("{} rax, rdx", return_type.name());
-                        let addr = read_u64(&rax())?;
-                        let val = if addr != 0 {
-                            if left_size != 0 {
-                                dyn_ref_value_from_rax_rdx(rwriter, &left, &left_type)?
-                            } else {
-                                dyn_ref_value_from_rax_rdx(rwriter, &right, &right_type)?
-                            }
+                        rwriter.prim_v(ty, v)
+                    };
+                    event.write_result(rwriter, RETVAL, return_type.name(), res == 0, val);
+                    return Ok(());
+                } else if (left_size == 0 && right.is_str()) || (left.is_str() && right_size == 0) {
+                    // Result<(), &str>, Result<&str, ()>
+                    // pointer is non-zero, so discriminant and data is packed together
+                    log::trace!("{} rax, rdx", return_type.name());
+                    let addr = read_u64(&rax())?;
+                    let val = if addr != 0 {
+                        let len = read_u64(&rdx())? as usize;
+                        let bytes = read_str_from_addr(addr, len)?;
+                        rwriter.strlit_v(&bytes)
+                    } else {
+                        rwriter.unit_v()
+                    };
+                    event.write_result(
+                        rwriter,
+                        RETVAL,
+                        return_type.name(),
+                        (addr == 0) == (left_size == 0),
+                        val,
+                    );
+                    return Ok(());
+                } else if (matches!(left, ValueType::DynRef(_)) && right_size == 0)
+                    || (left_size == 0 && matches!(right, ValueType::DynRef(_)))
+                {
+                    log::trace!("{} rax, rdx", return_type.name());
+                    let addr = read_u64(&rax())?;
+                    let val = if addr != 0 {
+                        if left_size != 0 {
+                            dyn_ref_value_from_rax_rdx(rwriter, &left, &left_type)?
                         } else {
-                            rwriter.unit_v()
-                        };
-                        event.write_result(
-                            rwriter,
-                            RETVAL,
-                            return_type.name(),
-                            (addr == 0) == (left_size == 0),
-                            val,
-                        );
-                        return Ok(());
-                    } else if cfg!(target_arch = "aarch64")
-                        && (left_size <= 8 && right_size <= 8)
-                        && (left.is_integer() && right.is_integer())
-                        && left.is_signed_integer() != right.is_signed_integer()
-                    {
-                        // since llvm 18; Result<u32, i32> Result<u64, i64>
-                        log::trace!("{} x0, x1", return_type.name());
-                        let res = read_u64(&reg("x0"))?;
-                        let left_or_right = if res == 0 { &left } else { &right };
-                        let val = get_prim_from_rdx(rwriter, left_or_right)?;
-                        event.write_result(rwriter, RETVAL, return_type.name(), res == 0, val);
-                        return Ok(());
-                    } else if cfg!(target_arch = "aarch64")
-                        && matches!(
-                            (&left, &right),
-                            (ValueType::u128, ValueType::i128) | (ValueType::i128, ValueType::u128)
+                            dyn_ref_value_from_rax_rdx(rwriter, &right, &right_type)?
+                        }
+                    } else {
+                        rwriter.unit_v()
+                    };
+                    event.write_result(
+                        rwriter,
+                        RETVAL,
+                        return_type.name(),
+                        (addr == 0) == (left_size == 0),
+                        val,
+                    );
+                    return Ok(());
+                } else if cfg!(target_arch = "aarch64")
+                    && (left_size <= 8 && right_size <= 8)
+                    && (left.is_integer() && right.is_integer())
+                    && left.is_signed_integer() != right.is_signed_integer()
+                {
+                    // since llvm 18; Result<u32, i32> Result<u64, i64>
+                    log::trace!("{} x0, x1", return_type.name());
+                    let res = read_u64(&reg("x0"))?;
+                    let left_or_right = if res == 0 { &left } else { &right };
+                    let val = get_prim_from_rdx(rwriter, left_or_right)?;
+                    event.write_result(rwriter, RETVAL, return_type.name(), res == 0, val);
+                    return Ok(());
+                } else if cfg!(target_arch = "aarch64")
+                    && matches!(
+                        (&left, &right),
+                        (ValueType::u128, ValueType::i128) | (ValueType::i128, ValueType::u128)
+                    )
+                {
+                    // since llvm 18; Result<u128, i128>
+                    log::trace!("{} x0, x2, x3", return_type.name());
+                    let res = read_u64(&reg("x0"))?;
+                    let left_or_right = if res == 0 { &left } else { &right };
+                    let val = rwriter.prim_v(
+                        match left_or_right {
+                            ValueType::u128 => "u128",
+                            ValueType::i128 => "i128",
+                            _ => unreachable!(),
+                        },
+                        &values_to_bytes::<16, _>([reg("x2"), reg("x3")].into_iter(), 2)?,
+                    );
+                    event.write_result(rwriter, RETVAL, return_type.name(), res == 0, val);
+                    return Ok(());
+                } else if (left_size <= 8 && right_size <= 8) // must fit in register
+                    && (left == right // same type, easy case
+                    || (left.is_thin_ptr() && right.is_thin_ptr()) // both are pointers
+                    // small integers, complex case
+                    || (left.is_integer() && right.is_integer() && left_size <= 4 && right_size <= 4)
+                    // if any side is (), result would be passed through registers
+                    || (left == ValueType::Unit || right == ValueType::Unit))
+                {
+                    // pass through register
+                    if (left.is_integer() && right.is_integer())
+                        && (left_size <= 4 && right_size <= 4) // must fit together
+                        && (
+                            left_size != right_size || // size mismatch
+                            (left.is_signed_integer() != right.is_signed_integer()) // signed mismatch
                         )
                     {
-                        // since llvm 18; Result<u128, i128>
-                        log::trace!("{} x0, x2, x3", return_type.name());
-                        let res = read_u64(&reg("x0"))?;
+                        log::trace!("{} rax only", return_type.name());
+                        // Result<i32, u32>, Result<i8, u8>, Result<i16, i32>
+                        // this is the complex case, where the discriminant and value are both squashed into the same register
+                        let data = read_u64(&rax())?;
+                        let res = data & 0x1; // select the least significant bit
                         let left_or_right = if res == 0 { &left } else { &right };
-                        let val = rwriter.prim_v(
-                            match left_or_right {
-                                ValueType::u128 => "u128",
-                                ValueType::i128 => "i128",
-                                _ => unreachable!(),
-                            },
-                            &values_to_bytes::<16, _>([reg("x2"), reg("x3")].into_iter(), 2)?,
-                        );
-                        event.write_result(rwriter, RETVAL, return_type.name(), res == 0, val);
-                        return Ok(());
-                    } else if (left_size <= 8 && right_size <= 8) // must fit in register
-                        && (left == right // same type, easy case
-                        || (left.is_thin_ptr() && right.is_thin_ptr()) // both are pointers
-                        // small integers, complex case
-                        || (left.is_integer() && right.is_integer() && left_size <= 4 && right_size <= 4)
-                        // if any side is (), result would be passed through registers
-                        || (left == ValueType::Unit || right == ValueType::Unit))
-                    {
-                        // pass through register
-                        if (left.is_integer() && right.is_integer())
-                            && (left_size <= 4 && right_size <= 4) // must fit together
-                            && (
-                                left_size != right_size || // size mismatch
-                                (left.is_signed_integer() != right.is_signed_integer()) // signed mismatch
-                            )
-                        {
-                            log::trace!("{} rax only", return_type.name());
-                            // Result<i32, u32>, Result<i8, u8>, Result<i16, i32>
-                            // this is the complex case, where the discriminant and value are both squashed into the same register
-                            let data = read_u64(&rax())?;
-                            let res = data & 0x1; // select the least significant bit
-                            let left_or_right = if res == 0 { &left } else { &right };
-                            let left_or_right_size = if res == 0 { left_size } else { right_size };
-                            let ty = left_or_right.primitive_name();
+                        let left_or_right_size = if res == 0 { left_size } else { right_size };
+                        let ty = left_or_right.primitive_name();
 
-                            let val = if data == 0 || data == 1 {
-                                let b = read_u64(&rdx())?.to_ne_bytes();
-                                rwriter.prim_v(ty, &b[..left_or_right_size])
-                            } else {
-                                let b = data.to_ne_bytes();
-                                match left_or_right_size {
-                                    // the value is in the 2nd lower word
-                                    1 => rwriter.prim_v(ty, &b[1..2]),
-                                    2 => rwriter.prim_v(ty, &b[2..4]),
-                                    4 => rwriter.prim_v(ty, &b[4..8]),
-                                    _ => unreachable!(),
-                                }
-                            };
-                            event.write_result(rwriter, RETVAL, return_type.name(), res == 0, val);
-                        } else if (left == ValueType::Unit || right == ValueType::Unit)
-                            && (left.is_thin_ptr() || right.is_thin_ptr())
-                        {
-                            // Result<(), &T>, Result<&T, ()>
-                            // ptr is always non-zero, so the whole struct fits in 64 bits
-                            log::trace!("{} rax only", return_type.name());
-                            let data = read_u64(&rax())?;
-                            let res = (data == 0) == (left_size == 0);
-                            let data = create_data_from_u64(data)?;
-                            let sb_value =
-                                sb_target.create_value_from_data(RETVAL, &data, return_type);
-                            let val =
-                                write_union_with(rwriter, &sb_value, if res { 0 } else { 1 })?;
-                            event.write_value(rwriter, RETVAL, val.as_bytes());
+                        let val = if data == 0 || data == 1 {
+                            let b = read_u64(&rdx())?.to_ne_bytes();
+                            rwriter.prim_v(ty, &b[..left_or_right_size])
                         } else {
-                            log::trace!("{} rax, rdx", return_type.name());
-                            // Result<i32, i32>, Result<i8, i8>
-                            // this is the easy case, where discriminant is in rax , data in rdx
-                            let res = read_u64(&rax())? & 0x1; // select the least significant bit
-                            let left_or_right = if res == 0 { &left } else { &right };
-                            let left_or_right_type =
-                                if res == 0 { &left_type } else { &right_type };
-                            let val = if left_or_right.is_primitive() {
-                                // here we only use the boiled down type
-                                // may be we can recreate the full type using create_value_from_data()?
-                                get_prim_from_rdx(rwriter, left_or_right)?
-                            } else if left_or_right.is_thin_ptr() {
-                                let addr = read_u64(&rdx())?;
-                                ref_value_from_addr(rwriter, addr, left_or_right_type)?
-                            } else {
-                                rwriter.opaque_v()
-                            };
-                            event.write_result(rwriter, RETVAL, return_type.name(), res == 0, val);
-                        }
-                        return Ok(());
-                    } else if cfg!(target_arch = "aarch64")
-                        && (left_size <= 8 && right_size <= 8)
+                            let b = data.to_ne_bytes();
+                            match left_or_right_size {
+                                // the value is in the 2nd lower word
+                                1 => rwriter.prim_v(ty, &b[1..2]),
+                                2 => rwriter.prim_v(ty, &b[2..4]),
+                                4 => rwriter.prim_v(ty, &b[4..8]),
+                                _ => unreachable!(),
+                            }
+                        };
+                        event.write_result(rwriter, RETVAL, return_type.name(), res == 0, val);
+                    } else if (left == ValueType::Unit || right == ValueType::Unit)
                         && (left.is_thin_ptr() || right.is_thin_ptr())
                     {
-                        log::trace!("{} x8, x9", return_type.name());
-                        let res = read_u64(&reg("x8"))?;
-                        let data = read_u64(&reg("x9"))?;
-                        let left_or_right_type = if res == 0 { &left_type } else { &right_type };
+                        // Result<(), &T>, Result<&T, ()>
+                        // ptr is always non-zero, so the whole struct fits in 64 bits
+                        log::trace!("{} rax only", return_type.name());
+                        let data = read_u64(&rax())?;
+                        let res = (data == 0) == (left_size == 0);
                         let data = create_data_from_u64(data)?;
-                        let value =
-                            sb_target.create_value_from_data(RETVAL, &data, &left_or_right_type);
-                        if !value.is_valid() {
-                            return Err(WriteErr);
-                        }
-                        let mut val = Bytes::new();
-                        val.write_inner_value(rwriter, &value);
+                        let sb_value = sb_target.create_value_from_data(RETVAL, &data, return_type);
+                        let val = write_union_with(rwriter, &sb_value, if res { 0 } else { 1 })?;
+                        event.write_value(rwriter, RETVAL, val.as_bytes());
+                    } else {
+                        log::trace!("{} rax, rdx", return_type.name());
+                        // Result<i32, i32>, Result<i8, i8>
+                        // this is the easy case, where discriminant is in rax , data in rdx
+                        let res = read_u64(&rax())? & 0x1; // select the least significant bit
+                        let left_or_right = if res == 0 { &left } else { &right };
+                        let left_or_right_type = if res == 0 { &left_type } else { &right_type };
+                        let val = if left_or_right.is_primitive() {
+                            // here we only use the boiled down type
+                            // may be we can recreate the full type using create_value_from_data()?
+                            get_prim_from_rdx(rwriter, left_or_right)?
+                        } else if left_or_right.is_thin_ptr() {
+                            let addr = read_u64(&rdx())?;
+                            ref_value_from_addr(rwriter, addr, left_or_right_type)?
+                        } else {
+                            rwriter.opaque_v()
+                        };
                         event.write_result(rwriter, RETVAL, return_type.name(), res == 0, val);
-                        return Ok(());
                     }
+                    return Ok(());
+                } else if cfg!(target_arch = "aarch64")
+                    && (left_size <= 8 && right_size <= 8)
+                    && (left.is_thin_ptr() || right.is_thin_ptr())
+                {
+                    log::trace!("{} x8, x9", return_type.name());
+                    let res = read_u64(&reg("x8"))?;
+                    let data = read_u64(&reg("x9"))?;
+                    let left_or_right_type = if res == 0 { &left_type } else { &right_type };
+                    let data = create_data_from_u64(data)?;
+                    let value = sb_target.create_value_from_data(RETVAL, &data, left_or_right_type);
+                    if !value.is_valid() {
+                        return Err(WriteErr);
+                    }
+                    let mut val = Bytes::new();
+                    val.write_inner_value(rwriter, &value);
+                    event.write_result(rwriter, RETVAL, return_type.name(), res == 0, val);
+                    return Ok(());
                 }
-                _ => (),
             }
             // Result<i32, i64>, Result<u64, i64>
             #[cfg(target_arch = "x86_64")]
@@ -1086,9 +1077,9 @@ pub(super) fn write_return_value(
             }
             Ok(())
         }
-        ValueType::Array(_, _) => write_array(rwriter, event, &value_type, &return_type),
+        ValueType::Array(_, _) => write_array(rwriter, event, &value_type, return_type),
         ValueType::Slice(_) => {
-            let value = get_slice_from_rax_rdx(rwriter, &value_type, &return_type)?;
+            let value = get_slice_from_rax_rdx(rwriter, &value_type, return_type)?;
             event.write_value(rwriter, RETVAL, value.as_bytes());
             Ok(())
         }
@@ -1120,7 +1111,7 @@ pub(super) fn write_return_value(
                     (left.name().to_owned(), left_type, left_sb_type)
                 };
                 if matches!(left_type, ValueType::Array(_, _)) {
-                    return write_array(rwriter, event, &left_type, &return_type);
+                    return write_array(rwriter, event, &left_type, return_type);
                 }
                 match left_type.size_of() {
                     SizeOfType::Sized(left_size) if left_size <= 16 => {
@@ -1130,7 +1121,7 @@ pub(super) fn write_return_value(
                         } else if matches!(left_type, ValueType::Reference(_)) {
                             get_reference_from_rax_rdx(rwriter, &left_type, &left_sb_type)?
                         } else if left_type.is_fat_ptr() {
-                            dyn_ref_value_from_rax_rdx(rwriter, &value_type, &return_type)?
+                            dyn_ref_value_from_rax_rdx(rwriter, &value_type, return_type)?
                         } else {
                             rwriter.opaque_v()
                         };

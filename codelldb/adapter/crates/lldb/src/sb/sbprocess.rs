@@ -204,25 +204,19 @@ pub enum ProcessState {
 impl ProcessState {
     pub fn is_alive(&self) -> bool {
         use ProcessState::*;
-        match self {
-            Attaching | Launching | Stopped | Running | Stepping | Crashed | Suspended => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            Attaching | Launching | Stopped | Running | Stepping | Crashed | Suspended
+        )
     }
 
     pub fn is_running(&self) -> bool {
         use ProcessState::*;
-        match self {
-            Attaching | Launching | Running | Stepping => true,
-            _ => false,
-        }
+        matches!(self, Attaching | Launching | Running | Stepping)
     }
 
     pub fn is_stopped(&self) -> bool {
         use ProcessState::*;
-        match self {
-            Stopped | Crashed | Suspended | Unloaded | Exited => true,
-            _ => false,
-        }
+        matches!(self, Stopped | Crashed | Suspended | Unloaded | Exited)
     }
 }

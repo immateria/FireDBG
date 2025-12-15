@@ -298,7 +298,7 @@ impl Display for RValue {
                 if typename.starts_with('&') {
                     write!(f, "&")?;
                 }
-                print_bytes(f, &value)?;
+                print_bytes(f, value)?;
             }
             Self::Ref {
                 typename, value, ..
@@ -545,13 +545,10 @@ fn print_struct(
                 "data"
             })
             .unwrap();
-        match value {
-            RValue::Struct { fields, .. } => {
-                if let Some(v) = fields.get("value") {
-                    value = v;
-                }
+        if let RValue::Struct { fields, .. } = value {
+            if let Some(v) = fields.get("value") {
+                value = v;
             }
-            _ => (),
         }
         write!(f, "::new(")?;
         if pretty {
@@ -574,11 +571,10 @@ fn print_struct(
         if pretty {
             write!(
                 f,
-                "{}{}: {:#width$}{}{}",
+                "{}{}: {:#width$},{}",
                 indent,
                 attr,
                 value,
-                ",",
                 nl,
                 width = (width + 1)
             )?;
@@ -625,10 +621,9 @@ fn print_hashmap(
         if pretty {
             write!(
                 f,
-                "    {}{:#width$}{}{}",
+                "    {}{:#width$},{}",
                 indent,
                 value,
-                ",",
                 nl,
                 width = (width + 1)
             )?;
@@ -663,14 +658,8 @@ fn print_os_string(
     }
     let inner = match fields.get("inner") {
         Some(RValue::Struct { fields, .. }) => {
-            if let Some(inner) = fields.get("inner") {
-                match inner {
-                    RValue::Bytes { value, .. } => value,
-                    _ => {
-                        write!(f, "?)")?;
-                        return Ok(());
-                    }
-                }
+            if let Some(RValue::Bytes { value, .. }) = fields.get("inner") {
+                value
             } else {
                 write!(f, "?)")?;
                 return Ok(());
@@ -706,14 +695,14 @@ fn print_arr_items(
         return Ok(());
     }
     let indent = if pretty {
-        write!(f, "\n")?;
+        writeln!(f)?;
         String::from_utf8(vec![b' '; (width + 1) * 4]).unwrap()
     } else {
         String::new()
     };
     for (i, item) in data.iter().enumerate() {
         if pretty {
-            write!(f, "{}{:#width$},\n", indent, item, width = (width + 1))?;
+            writeln!(f, "{}{:#width$},", indent, item, width = (width + 1))?;
         } else {
             write!(f, "{}{}", item, if i < data.len() - 1 { ", " } else { "" })?;
         }
@@ -797,16 +786,22 @@ impl RValue {
     }
 
     /// # Panics
-    /// Panic if self is not of `Result` variant, or variant is not "Ok" or "Err".
-    pub fn result_variant(&self) -> Result<(), ()> {
+    /// Panics if `self` is not of `Result` variant, or variant is not "Ok" or "Err".
+    pub fn result_is_ok(&self) -> bool {
         match self {
             Self::Result { variant, .. } => match variant.as_str() {
-                "Ok" => Ok(()),
-                "Err" => Err(()),
+                "Ok" => true,
+                "Err" => false,
                 e => panic!("Unexpected variant {e}"),
             },
             _ => panic!("Not Result"),
         }
+    }
+
+    /// # Panics
+    /// Panics if `self` is not of `Result` variant, or variant is not "Ok" or "Err".
+    pub fn result_is_err(&self) -> bool {
+        !self.result_is_ok()
     }
 }
 

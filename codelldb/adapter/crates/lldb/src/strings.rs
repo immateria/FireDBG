@@ -196,6 +196,7 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::manual_c_str_literals)]
     fn test_get_str() {
         assert_eq!(
             unsafe { get_str(b"foo\0".as_ptr() as *const c_char) },

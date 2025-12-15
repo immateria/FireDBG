@@ -164,9 +164,7 @@ impl<'a> SBTargetEvent<'a> {
         })
     }
     pub fn modules<'b>(&'b self) -> impl Iterator<Item = SBModule> + 'b {
-        SBIterator::new(self.num_modules() as u32, move |index| {
-            self.module_at_index(index)
-        })
+        SBIterator::new(self.num_modules(), move |index| self.module_at_index(index))
     }
 
     pub const BroadcastBitBreakpointChanged: u32 = (1 << 0);
@@ -237,7 +235,7 @@ impl<'a> SBBreakpointEvent<'a> {
         })
     }
     pub fn breakpoint_locations<'b>(&'b self) -> impl Iterator<Item = SBBreakpointLocation> + 'b {
-        SBIterator::new(self.num_breakpoint_locations() as u32, move |index| {
+        SBIterator::new(self.num_breakpoint_locations(), move |index| {
             self.breakpoint_location_at_index(index)
         })
     }

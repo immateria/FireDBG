@@ -131,13 +131,7 @@ impl ValueType {
     }
 
     pub fn is_str(&self) -> bool {
-        match self {
-            ValueType::Reference(r) => match r.deref() {
-                ValueType::str => true,
-                _ => false,
-            },
-            _ => false,
-        }
+        matches!(self, ValueType::Reference(r) if matches!(r.deref(), ValueType::str))
     }
 
     pub fn is_thin_ptr(&self) -> bool {
@@ -159,33 +153,33 @@ impl ValueType {
     }
 
     pub fn is_integer(&self) -> bool {
-        match self {
+        matches!(
+            self,
             ValueType::u8
-            | ValueType::i8
-            | ValueType::u16
-            | ValueType::i16
-            | ValueType::u32
-            | ValueType::i32
-            | ValueType::u64
-            | ValueType::i64
-            | ValueType::u128
-            | ValueType::i128
-            | ValueType::usize
-            | ValueType::isize => true,
-            _ => false,
-        }
+                | ValueType::i8
+                | ValueType::u16
+                | ValueType::i16
+                | ValueType::u32
+                | ValueType::i32
+                | ValueType::u64
+                | ValueType::i64
+                | ValueType::u128
+                | ValueType::i128
+                | ValueType::usize
+                | ValueType::isize
+        )
     }
 
     pub fn is_signed_integer(&self) -> bool {
-        match self {
+        matches!(
+            self,
             ValueType::i8
-            | ValueType::i16
-            | ValueType::i32
-            | ValueType::i64
-            | ValueType::i128
-            | ValueType::isize => true,
-            _ => false,
-        }
+                | ValueType::i16
+                | ValueType::i32
+                | ValueType::i64
+                | ValueType::i128
+                | ValueType::isize
+        )
     }
 
     pub fn is_float(&self) -> bool {
@@ -230,14 +224,15 @@ impl FromStr for ValueType {
     type Err = &'static str;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        if s.starts_with("&dyn") {
-            return Ok(Self::DynRef(Rc::new(s[5..].parse()?)));
+        if let Some(rest) = s.strip_prefix("&dyn ") {
+            return Ok(Self::DynRef(Rc::new(rest.parse()?)));
         } else if s.starts_with("&[") && s.ends_with(']') && !s.contains("; ") {
-            let s = &s[2..s.len() - 1];
+            let s = s.strip_prefix("&[").expect("starts_with checked");
+            let s = &s[..s.len() - 1];
             let ty = Rc::new(s.parse()?);
             return Ok(Self::Slice(ty));
-        } else if s.starts_with("&") {
-            return Ok(Self::Reference(Rc::new(s[1..].parse()?)));
+        } else if let Some(rest) = s.strip_prefix('&') {
+            return Ok(Self::Reference(Rc::new(rest.parse()?)));
         } else if s.starts_with("core::option::Option<") {
             let p = "core::option::Option<".len();
             ends_with_gt(s)?;
@@ -272,9 +267,8 @@ impl FromStr for ValueType {
             return Ok(Self::Reference(Rc::new(s[p..s.len() - 1].parse()?)));
         } else if s.starts_with("core::result::Result<") && s.ends_with('>') {
             let s = s
-                .split_once("core::result::Result<")
-                .expect("starts_with checked")
-                .1;
+                .strip_prefix("core::result::Result<")
+                .expect("starts_with checked");
             let p = parse_pair(s)?;
             return Ok(Self::Result(
                 Rc::new(s[..p].trim().parse()?),
@@ -340,14 +334,14 @@ pub(crate) fn parse_pair(s: &str) -> Result<usize, &'static str> {
     if depth != 0 {
         return Err("unmatched < >");
     }
-    return Err("cannot find ,");
+    Err("cannot find ,")
 }
 
 fn ends_with_gt(s: &str) -> Result<(), &'static str> {
     if s.ends_with(">") {
         Ok(())
     } else {
-        return Err("missing closing >");
+        Err("missing closing >")
     }
 }
 
@@ -517,7 +511,7 @@ pub(crate) fn get_ref_counted_pointee(pointer: &SBType) -> Result<(SBType, SBTyp
 }
 
 pub(crate) fn format_value_type_as_tuple(chain: &[ValueType]) -> String {
-    let mut s = format!("(");
+    let mut s = "(".to_string();
     for ty in chain {
         write!(s, "{}, ", ty).unwrap();
     }
@@ -547,7 +541,7 @@ mod test {
             "core::result::Result<i32, i64>"
                 .parse::<ValueType>()
                 .unwrap(),
-            ValueType::Result(ValueType::i32.into(), ValueType::i64.into()).into(),
+            ValueType::Result(ValueType::i32.into(), ValueType::i64.into()),
         );
         assert_eq!(
             "core::result::Result<core::result::Result<u8, i8>, i64>"

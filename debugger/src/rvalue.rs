@@ -73,50 +73,37 @@ impl RValueLift for RValue {
                     || typename.starts_with("alloc::rc::Rc<dyn ")
                 {
                     if let Some(value) = fields.swap_remove("ptr") {
-                        if let Some(value) = take_struct_field(value, "pointer") {
-                            if let Self::Struct { mut fields, .. } = value {
-                                let pointer = fields.swap_remove("pointer");
-                                let vtable = fields.swap_remove("vtable");
-                                if let (Some(pointer), Some(vtable)) = (pointer, vtable) {
-                                    if let Self::Ref { addr, value, .. } = pointer {
-                                        let extract = |name: &str| -> Option<u64> {
-                                            take_usize(
-                                                value
-                                                    .struct_field(name)?
-                                                    .struct_field("value")?
-                                                    .prim()?,
-                                            )
-                                        };
-                                        let strong = extract("strong").unwrap_or_default();
-                                        let weak = extract("weak").unwrap_or_default();
-                                        let field = if typename.starts_with("alloc::sync::Arc<") {
-                                            "data"
-                                        } else {
-                                            "value"
-                                        };
-                                        *self = Self::DynRefCounted {
-                                            typename: std::mem::take(typename),
-                                            addr,
-                                            strong,
-                                            weak,
-                                            vtable: get_addr(&vtable),
-                                            value: Box::new(take_struct_field(
-                                                unbox(value),
-                                                field,
-                                            )?),
-                                        };
-                                    } else {
-                                        *self = Self::Struct {
-                                            typename: std::mem::take(typename),
-                                            fields: Default::default(),
-                                        };
-                                    }
+                        if let Some(Self::Struct { mut fields, .. }) =
+                            take_struct_field(value, "pointer")
+                        {
+                            let pointer = fields.swap_remove("pointer");
+                            let vtable = fields.swap_remove("vtable");
+                            if let (Some(Self::Ref { addr, value, .. }), Some(vtable)) =
+                                (pointer, vtable)
+                            {
+                                let extract = |name: &str| -> Option<u64> {
+                                    take_usize(
+                                        value.struct_field(name)?.struct_field("value")?.prim()?,
+                                    )
+                                };
+                                let strong = extract("strong").unwrap_or_default();
+                                let weak = extract("weak").unwrap_or_default();
+                                let field = if typename.starts_with("alloc::sync::Arc<") {
+                                    "data"
                                 } else {
-                                    *self = Self::Struct {
-                                        typename: std::mem::take(typename),
-                                        fields: Default::default(),
-                                    };
-                                }
+                                    "value"
+                                };
+
+                                let value = *value;
+
+                                *self = Self::DynRefCounted {
+                                    typename: std::mem::take(typename),
+                                    addr,
+                                    strong,
+                                    weak,
+                                    vtable: get_addr(&vtable),
+                                    value: Box::new(take_struct_field(value, field)?),
+                                };
                             } else {
                                 *self = Self::Struct {
                                     typename: std::mem::take(typename),
@@ -157,9 +144,10 @@ impl RValueLift for RValue {
                                 addr,
                                 strong,
                                 weak,
-                                value: Box::new(
-                                    take_struct_field(unbox(value), field).unwrap_or(Self::Opaque),
-                                ),
+                                value: Box::new({
+                                    let value = *value;
+                                    take_struct_field(value, field).unwrap_or(Self::Opaque)
+                                }),
                             };
                         } else {
                             *self = Self::Struct {
@@ -238,8 +226,4 @@ fn take_usize(value: PValue) -> Option<u64> {
         PValue::usize(value) => Some(value),
         _ => None,
     }
-}
-
-fn unbox<T>(value: Box<T>) -> T {
-    *value
 }

@@ -30,6 +30,12 @@ enum Token {
     Op(String),
 }
 
+impl Default for Reader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Reader {
     pub fn new() -> Self {
         Self {
@@ -174,7 +180,7 @@ impl ReaderContext {
     fn enumerate_v(&self, ty: String, variant: String) -> RValue {
         RValue::Enum {
             typename: ty,
-            variant: variant,
+            variant,
         }
     }
 
@@ -289,10 +295,10 @@ impl SourceReader {
         }
         self.cur = q + 1; // assume one space as delimiter
         let tok = std::str::from_utf8(tok).unwrap();
-        return Some(match tok.parse() {
+        Some(match tok.parse() {
             Ok(n) => Token::Int(n),
             Err(_) => Token::Op(tok.to_owned()),
-        });
+        })
     }
 
     fn next_char(&self, c: u8) -> usize {
@@ -377,10 +383,7 @@ impl SourceReader {
                         }
                         variants.reverse();
                         let name = str_stack.pop().unwrap();
-                        let ty = UnionType {
-                            name: name,
-                            variants,
-                        };
+                        let ty = UnionType { name, variants };
                         let index = int_stack.pop().unwrap() as usize;
                         let fc = int_stack.pop().unwrap();
                         let mut field = Vec::new();
@@ -415,7 +418,7 @@ impl SourceReader {
             v.lift();
         });
         assert_eq!(names.len(), val_stack.len());
-        names.into_iter().zip(val_stack.into_iter()).collect()
+        names.into_iter().zip(val_stack).collect()
     }
 }
 

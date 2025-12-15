@@ -14,7 +14,7 @@ pub type BreakpointID = u32;
 pub type WatchpointID = u32;
 pub type UserID = u64;
 
-pub const INVALID_ADDRESS: Address = Address::max_value();
+pub const INVALID_ADDRESS: Address = Address::MAX;
 pub const INVALID_THREAD_ID: ThreadID = 0;
 pub const INVALID_PROCESS_ID: ProcessID = 0;
 pub const INVALID_BREAK_ID: BreakpointID = 0;
@@ -53,8 +53,8 @@ where
 {
     fn new(size: u32, get_item: GetItem) -> Self {
         Self {
-            size: size,
-            get_item: get_item,
+            size,
+            get_item,
             index: 0,
         }
     }
@@ -75,7 +75,7 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        return (0, Some(self.size as usize));
+        (0, Some(self.size as usize))
     }
 }
 

@@ -23,6 +23,10 @@ impl Bytes {
         self.0.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn get(&self, i: usize) -> u8 {
         self.0[i]
     }

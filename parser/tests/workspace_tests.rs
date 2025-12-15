@@ -170,7 +170,7 @@ async fn parse_example_workspace() -> anyhow::Result<()> {
     // /Applications/MAMP/htdocs/FireDBG.for.Rust.Internal/parser/tests/example-workspace/target/debug/deps/simple_tests-eb63f31f8208c8a4
     println!(
         "test_path {}",
-        simple_tests.get_test_path(&workspace, &main_one_package)?
+        simple_tests.get_test_path(&workspace, main_one_package)?
     );
     // /Applications/MAMP/htdocs/FireDBG.for.Rust.Internal/parser/tests/example-workspace/target/debug/examples/demo
     println!("example_path {}", demo.get_example_path(&workspace));

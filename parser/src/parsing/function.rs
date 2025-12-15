@@ -48,12 +48,9 @@ impl ParseFunction for syn::ItemFn {
 impl ParseFunction for syn::ItemImpl {
     fn parse(&self) -> Vec<FunctionDef> {
         self.items.iter().fold(Vec::new(), |mut acc, impl_item| {
-            match impl_item {
-                // We only want to parse the function in the impl block
-                syn::ImplItem::Fn(impl_item_fn) => {
-                    acc.extend((self, impl_item_fn).parse());
-                }
-                _ => {}
+            // We only want to parse the function in the impl block.
+            if let syn::ImplItem::Fn(impl_item_fn) = impl_item {
+                acc.extend((self, impl_item_fn).parse());
             }
             acc
         })
@@ -98,11 +95,8 @@ impl ParseFunction for (&syn::ItemImpl, &syn::ImplItemFn) {
 impl ParseFunction for syn::ItemTrait {
     fn parse(&self) -> Vec<FunctionDef> {
         self.items.iter().fold(Vec::new(), |mut acc, trait_item| {
-            match trait_item {
-                syn::TraitItem::Fn(trait_item_fn) => {
-                    acc.extend((self, trait_item_fn).parse());
-                }
-                _ => {}
+            if let syn::TraitItem::Fn(trait_item_fn) = trait_item {
+                acc.extend((self, trait_item_fn).parse());
             }
             acc
         })
@@ -195,14 +189,11 @@ fn is_static(signature: &syn::Signature) -> bool {
 
 fn parse_nested_func(parent_breakpoint: FunctionDef, block: &syn::Block) -> Vec<FunctionDef> {
     let mut nested_func = block.stmts.iter().fold(Vec::new(), |mut acc, stmt| {
-        match stmt {
-            syn::Stmt::Item(item) => {
-                acc.extend(item.parse().into_iter().map(|mut breakpoint| {
-                    breakpoint.ty = breakpoint.ty.into_nested_func(&parent_breakpoint);
-                    breakpoint
-                }));
-            }
-            _ => {}
+        if let syn::Stmt::Item(item) = stmt {
+            acc.extend(item.parse().into_iter().map(|mut breakpoint| {
+                breakpoint.ty = breakpoint.ty.into_nested_func(&parent_breakpoint);
+                breakpoint
+            }));
         }
         acc
     });

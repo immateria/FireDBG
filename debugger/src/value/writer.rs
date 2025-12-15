@@ -60,7 +60,7 @@ pub(crate) fn write_value(t: &mut RValueWriter, v: &SBValue, mut r: usize) -> Re
                     &ty.name[RESULT_BOX.len()..ty.name.len() - ">, ()>".len()],
                 )
             };
-            let pointee = get_sb_type(&pointee).ok_or(WriteErr)?;
+            let pointee = get_sb_type(pointee).ok_or(WriteErr)?;
             let addr = value_to_bytes::<8>(v)?;
             let addr = u64::from_ne_bytes(addr);
             return if addr == 0 {
@@ -114,7 +114,7 @@ pub(crate) fn write_value(t: &mut RValueWriter, v: &SBValue, mut r: usize) -> Re
                         // there are extra bytes, must be the determinant
                         if let Ok([det]) = value_to_bytes::<1>(v) {
                             if matches!(det, 0 | 1) {
-                                if let Ok(val) = write_union_with(t, &v, det as u32) {
+                                if let Ok(val) = write_union_with(t, v, det as u32) {
                                     return Ok(val);
                                 }
                             }
@@ -138,7 +138,7 @@ pub(crate) fn write_value(t: &mut RValueWriter, v: &SBValue, mut r: usize) -> Re
                     if 0 < size && size < vtype.byte_size() as usize {
                         if let Ok([det]) = value_to_bytes::<1>(v) {
                             if matches!(det, 0 | 1) {
-                                if let Ok(val) = write_union_with(t, &v, det as u32) {
+                                if let Ok(val) = write_union_with(t, v, det as u32) {
                                     return Ok(val);
                                 }
                             }
@@ -374,7 +374,7 @@ fn write_base_value(t: &mut RValueWriter, v: &SBValue, mut r: usize) -> Result<B
                 .map_err(|_| WriteErr)?;
             // this assumes that the hashbrown we are using has the exact same layout as user's code
             let hashmap: &frozen_hashbrown::HashMap =
-                unsafe { core::mem::transmute(bytes.as_ptr() as *const _) };
+                unsafe { &*(bytes.as_ptr() as *const _ as *const frozen_hashbrown::HashMap) };
             let table_layout = frozen_hashbrown::TableLayout::new(
                 core::alloc::Layout::from_size_align(bucket_size, bucket_align)
                     .map_err(|_| WriteErr)?,
@@ -415,7 +415,7 @@ fn write_base_value(t: &mut RValueWriter, v: &SBValue, mut r: usize) -> Result<B
                 let left_size = left.byte_size() as usize;
                 // round up to the next alignment
                 left_size
-                    + if left_size % bucket_align == 0 {
+                    + if left_size.is_multiple_of(bucket_align) {
                         0
                     } else {
                         bucket_align - (left_size % bucket_align)
@@ -567,7 +567,7 @@ pub(crate) fn write_union_with(
     let typename = vtype.name();
     let ty = get_union_type(&vtype).unwrap_or_else(|| panic!("type {vtype:?} is not Union"));
     let tag = typename.rsplit_once("::").ok_or(WriteErr)?.1;
-    return if let Some(variant) = ty.variants.iter().position(|v| v == tag) {
+    if let Some(variant) = ty.variants.iter().position(|v| v == tag) {
         let mut fields = Vec::new();
         for c in v.children() {
             if let Some(name) = c.name() {
@@ -589,7 +589,7 @@ pub(crate) fn write_union_with(
             }
         }
         Ok(wt.union_v(&ty, discriminant as usize, fields.into_iter()))
-    };
+    }
 }
 
 fn read_array(ptr: &SBValue, len: u64) -> Result<SBValue> {
@@ -648,7 +648,7 @@ pub(crate) fn enumerate_value<'a>(
     Ok((parent, variant))
 }
 
-fn value_to_str<'a>(v: &'a SBValue) -> Result<&'a str> {
+fn value_to_str(v: &SBValue) -> Result<&str> {
     match v.value() {
         Some(s) => s.to_str().map_err(|_| WriteErr),
         None => Err(WriteErr),

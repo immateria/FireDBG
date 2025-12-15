@@ -4,10 +4,7 @@ pub type Error = Box<dyn std::error::Error>;
 
 fn main() -> Result<(), Error> {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    let weak_linkage = match env::var("CARGO_FEATURE_WEAK_LINKAGE") {
-        Ok(_) => true,
-        Err(_) => false,
-    };
+    let weak_linkage = env::var("CARGO_FEATURE_WEAK_LINKAGE").is_ok();
 
     // Rebuild if any source files change
     rerun_if_changed_in(Path::new("src"))?;

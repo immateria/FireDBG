@@ -238,9 +238,9 @@ fn rustc_cmd(src: &str, obj: &str) -> std::process::Command {
     cmd.arg("--cap-lints=allow")
         .arg("--edition=2021")
         .arg("-g")
-        .arg(&src)
+        .arg(src)
         .arg("-o")
-        .arg(&obj);
+        .arg(obj);
     cmd
 }
 

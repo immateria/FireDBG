@@ -13,6 +13,10 @@ impl SBStringList {
             return self->GetSize();
         })
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub fn clear(&mut self) {
         cpp!(unsafe [self as "SBStringList*"] {
             return self->Clear();
