@@ -132,7 +132,7 @@ enum SubCommand {
     },
     /// Diagnose installation and environment
     Doctor {
-        #[structopt(long)]
+        #[structopt(long = "json-format", alias = "json")]
         json_format: bool,
     },
     #[structopt(setting = structopt::clap::AppSettings::Hidden)]
@@ -667,10 +667,19 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
         home: Option<String>,
         installed: BTreeMap<String, bool>,
         firedbg_lib: Option<FiredbgLibReport>,
+        debugger_spawn: Option<SpawnReport>,
         lldb: Option<LldbReport>,
         pythonpath_effective: Option<String>,
         code: Option<CommandReport>,
         hints: Vec<String>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct SpawnReport {
+        command: String,
+        ok: bool,
+        status: Option<i32>,
+        stderr: Option<String>,
     }
 
     #[derive(Debug, Serialize)]
@@ -730,6 +739,7 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
 
     let mut installed = BTreeMap::new();
     let mut firedbg_lib: Option<FiredbgLibReport> = None;
+    let mut debugger_spawn: Option<SpawnReport> = None;
 
     if let Some(home) = home.as_ref() {
         let home = home.trim_end_matches('/');
@@ -757,6 +767,37 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
 
         if installed.iter().any(|(k, v)| k != "firedbg-lib" && !*v) {
             hints.push("Missing FireDBG binaries in your install home. Re-run `./install.sh` (source) or ensure your cargo bin dir is on PATH.".to_string());
+        }
+
+        // Lightweight runtime check: can we execute the debugger binary at all?
+        // This does NOT attach to any process; it only runs `--help`.
+        let debugger_path = format!("{home}/firedbg-debugger");
+        if Path::new(&debugger_path).is_file() {
+            match ProcessCommand::new(&debugger_path).arg("--help").output() {
+                Ok(output) => {
+                    let ok = output.status.success();
+                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    debugger_spawn = Some(SpawnReport {
+                        command: format!("{} --help", debugger_path),
+                        ok,
+                        status: output.status.code(),
+                        stderr: if stderr.is_empty() { None } else { Some(stderr) },
+                    });
+
+                    if !ok {
+                        hints.push("`firedbg-debugger` exists but failed to execute. This is often a permissions / codesign / dynamic library path problem; try running it with `--help` directly to see the error.".to_string());
+                    }
+                }
+                Err(e) => {
+                    debugger_spawn = Some(SpawnReport {
+                        command: format!("{} --help", debugger_path),
+                        ok: false,
+                        status: None,
+                        stderr: Some(e.to_string()),
+                    });
+                    hints.push("`firedbg-debugger` exists but could not be executed (spawn failed). Re-run `./install.sh` and confirm your cargo bin directory is not blocked by OS security controls.".to_string());
+                }
+            }
         }
     } else {
         hints.push("If you intended to use installed binaries, install them into your cargo bin dir (default: `~/.cargo/bin`)".to_string());
@@ -822,6 +863,7 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
         home,
         installed,
         firedbg_lib,
+        debugger_spawn,
         lldb,
         pythonpath_effective,
         code: Some(code),
@@ -870,6 +912,18 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
                     console::status("firedbg-lib", &format!("ok ({})", lib.path));
                 } else {
                     console::warn("firedbg-lib", &format!("missing lib/ ({})", lib.path));
+                }
+            }
+        }
+
+        if let Some(spawn) = &report.debugger_spawn {
+            if spawn.ok {
+                console::status("debugger", "spawn ok");
+            } else {
+                console::warn("debugger", "spawn failed");
+                console::warn("debugger cmd", &spawn.command);
+                if let Some(stderr) = &spawn.stderr {
+                    console::warn("debugger err", stderr);
                 }
             }
         }
