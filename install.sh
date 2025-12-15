@@ -11,6 +11,50 @@ set -u
 # Shared return slot for helper functions
 typeset -g RETVAL=""
 
+function resolve_cache_dir
+{   emulate -L zsh
+    setopt localoptions
+
+    typeset cache_dir xdg_cache os
+
+    set +u
+    cache_dir=${FIREDBG_CACHE_DIR:-}
+    xdg_cache=${XDG_CACHE_HOME:-}
+    set -u
+
+    if [[ -n "$cache_dir" ]]; then
+        RETVAL="$cache_dir"
+        return 0
+    fi
+
+    if [[ -n "$xdg_cache" ]]; then
+        RETVAL="${xdg_cache%/}/firedbg"
+        return 0
+    fi
+
+    os=$(uname -s 2>/dev/null || true)
+    if [[ "$os" == Darwin ]]; then
+        RETVAL="${HOME}/Library/Caches/firedbg"
+    else
+        RETVAL="${HOME}/.cache/firedbg"
+    fi
+}
+
+function clean_cache
+{   emulate -L zsh
+    setopt localoptions
+
+    resolve_cache_dir || return 1
+    typeset cache_dir="$RETVAL"
+
+    if [[ -d "$cache_dir" ]]; then
+        say "info: removing cache directory: ${cache_dir}"
+        ensure rm -rf -- "$cache_dir"
+    else
+        say "info: cache directory does not exist: ${cache_dir}"
+    fi
+}
+
 function get_firedbg_version
 {   emulate -L zsh
     setopt localoptions
@@ -76,29 +120,39 @@ function main
 {   emulate -L zsh
     setopt localoptions
 
-    # Decide whether to use prebuilt binaries or build from source
-    typeset rustc_output version_str
-    typeset -a parts
-    typeset major minor
+    typeset mode="source"
+    typeset do_clean_cache=0
 
-    rustc_output=$(rustc --version 2>/dev/null) || err "failed to run 'rustc --version'"
+    while (( $# > 0 )); do
+        case "$1" in
+            --source)
+                mode="source"
+                ;;
+            --prebuilt)
+                mode="prebuilt"
+                ;;
+            --clean-cache)
+                do_clean_cache=1
+                ;;
+            -h|--help)
+                print -r -- "usage: install.sh [--source|--prebuilt] [--clean-cache]"
+                return 0
+                ;;
+            *)
+                err "unknown argument: $1"
+                ;;
+        esac
+        shift
+    done
 
-    version_str=${rustc_output#rustc }
-    version_str=${version_str%% *}
-    parts=(${(s:.:)version_str})
-    if (( ${#parts} < 2 )); then
-        err "unrecognized rustc version string: ${rustc_output}"
+    if (( do_clean_cache )); then
+        clean_cache || return 1
     fi
 
-    major=${parts[1]}
-    minor=${parts[2]}
-
-    # If rustc is newer than the latest prebuilt we know (1.81),
-    # prefer building from source so versions match.
-    if (( major > 1 || (major == 1 && minor > 81) )); then
-        install_from_source "${rustc_output}"
-    else
+    if [[ "$mode" == prebuilt ]]; then
         install_prebuilt
+    else
+        install_from_source
     fi
 }
 
@@ -106,8 +160,8 @@ function run_self_test
 {   emulate -L zsh
     setopt localoptions
 
-    local _cargo_home="$1"
-    local _self_test="${_cargo_home}/bin/firedbg-lib/debugger-self-test"
+    typeset _cargo_home="$1"
+    typeset _self_test="${_cargo_home}/bin/firedbg-lib/debugger-self-test"
 
     if [ ! -d "${_self_test}" ]; then
         printf '%s\n' 'info: skipping FireDBG self tests (debugger-self-test assets not found)' 1>&2
@@ -149,26 +203,26 @@ function install_prebuilt
     need_cmd which
 
     get_architecture || return 1
-    local _arch="$RETVAL"
+    typeset _arch="$RETVAL"
     assert_nz "$_arch" "arch"
 
     which rustup > /dev/null 2>&1
     need_ok "failed to find Rust installation, is rustup installed?"
 
     get_firedbg_version || return 1
-    local _firedbg_version="$RETVAL"
+    typeset _firedbg_version="$RETVAL"
     assert_nz "$_firedbg_version" "firedbg version"
 
-    local _url="https://github.com/SeaQL/FireDBG.for.Rust/releases/download/$_firedbg_version/$_arch.tar.gz"
-    local _dir="$(mktemp -d 2>/dev/null || ensure mktemp -d -t FireDBG)"
-    local _file="${_dir}/${_arch}.tar.gz"
+    typeset _url="https://github.com/SeaQL/FireDBG.for.Rust/releases/download/$_firedbg_version/$_arch.tar.gz"
+    typeset _dir="$(mktemp -d 2>/dev/null || ensure mktemp -d -t FireDBG)"
+    typeset _file="${_dir}/${_arch}.tar.gz"
 
     set +u
-    local _cargo_home="$CARGO_HOME"
+    typeset _cargo_home="$CARGO_HOME"
     if [ -z "$_cargo_home" ]; then
         _cargo_home="$HOME/.cargo";
     fi
-    local _cargo_bin="$_cargo_home/bin"
+    typeset _cargo_bin="$_cargo_home/bin"
     ensure mkdir -p "$_cargo_bin"
     set -u
 
@@ -202,8 +256,7 @@ function install_from_source
 {   emulate -L zsh
     setopt localoptions
 
-    local rustc_output="${1:-}"
-    say "info: rustc is newer than latest prebuilt; installing FireDBG from source"
+    say "info: installing FireDBG from source"
 
     downloader --check
     need_cmd cargo
@@ -211,16 +264,15 @@ function install_from_source
     need_cmd mktemp
     need_cmd mkdir
     need_cmd rm
-    need_cmd tar
     need_cmd which
     need_cmd unzip
 
     set +u
-    local _cargo_home="$CARGO_HOME"
+    typeset _cargo_home="$CARGO_HOME"
     if [ -z "$_cargo_home" ]; then
         _cargo_home="$HOME/.cargo";
     fi
-    local _cargo_bin="$_cargo_home/bin"
+    typeset _cargo_bin="$_cargo_home/bin"
     ensure mkdir -p "$_cargo_bin"
     set -u
 
@@ -228,24 +280,48 @@ function install_from_source
         err "source install requested but FireDBG source tree not found; clone the repository and run install.sh from its root"
     fi
 
-    if [[ ! -d "lldb" ]]; then
-        typeset vsix_arch vsix_name
-        case "$(uname -m)" in
-            x86_64|x86-64|x64|amd64)
-                vsix_arch="x86_64-darwin"
-                ;;
-            arm64|aarch64)
-                vsix_arch="aarch64-darwin"
-                ;;
-            *)
-                err "unsupported CPU architecture for source install: $(uname -m)"
-                ;;
-        esac
-        vsix_name="codelldb-${vsix_arch}.vsix"
-        say "info: downloading codelldb bundle (${vsix_arch}) for source build"
-        downloader "https://github.com/vadimcn/codelldb/releases/download/v1.10.0/${vsix_name}" "${vsix_name}"
-        ensure unzip -q "${vsix_name}" -d "codelldb-${vsix_arch}"
-        ensure mv "codelldb-${vsix_arch}/extension/lldb" "lldb"
+    resolve_cache_dir || return 1
+    typeset cache_dir="$RETVAL"
+    ensure mkdir -p "$cache_dir"
+
+    typeset codelldb_version="v1.10.0"
+    typeset vsix_arch vsix_name cache_root cache_vsix cache_lldb tmpdir
+
+    case "$(uname -m)" in
+        x86_64|x86-64|x64|amd64)
+            vsix_arch="x86_64-darwin"
+            ;;
+        arm64|aarch64)
+            vsix_arch="aarch64-darwin"
+            ;;
+        *)
+            err "unsupported CPU architecture for source install: $(uname -m)"
+            ;;
+    esac
+
+    vsix_name="codelldb-${vsix_arch}.vsix"
+    cache_root="${cache_dir}/codelldb/${codelldb_version}/${vsix_arch}"
+    cache_vsix="${cache_root}/${vsix_name}"
+    cache_lldb="${cache_root}/lldb"
+
+    if [[ ! -d "${cache_lldb}/lib" ]]; then
+        say "info: preparing codelldb bundle (${vsix_arch}) in cache"
+        ensure mkdir -p "$cache_root"
+
+        if [[ ! -f "$cache_vsix" ]]; then
+            downloader "https://github.com/vadimcn/codelldb/releases/download/${codelldb_version}/${vsix_name}" "$cache_vsix"
+        fi
+
+        tmpdir="$(mktemp -d 2>/dev/null || ensure mktemp -d -t FireDBG)"
+        ensure unzip -q "$cache_vsix" -d "$tmpdir"
+
+        if [[ ! -d "$tmpdir/extension/lldb" ]]; then
+            err "unexpected codelldb bundle layout (missing extension/lldb)"
+        fi
+
+        ignore rm -rf -- "$cache_lldb"
+        ensure mv "$tmpdir/extension/lldb" "$cache_lldb"
+        ignore rm -rf -- "$tmpdir"
     fi
 
     say "info: building FireDBG from source (command, debugger, indexer)"
@@ -260,7 +336,7 @@ function install_from_source
     ensure ln -sf "$PWD/target/debug/firedbg"           "${_cargo_bin}/firedbg"
     ensure ln -sf "$PWD/target/debug/firedbg-indexer"  "${_cargo_bin}/firedbg-indexer"
     ensure ln -sf "$PWD/target/debug/firedbg-debugger" "${_cargo_bin}/firedbg-debugger"
-    ensure ln -sfn "$PWD/lldb"                         "${_cargo_bin}/firedbg-lib"
+    ensure ln -sfn "$cache_lldb"                        "${_cargo_bin}/firedbg-lib"
 
     run_self_test "$_cargo_home"
 }
@@ -268,8 +344,8 @@ function install_from_source
 function get_architecture
 {   emulate -L zsh
     setopt localoptions
-    local _ostype="$(uname -s)"
-    local _cputype="$(uname -m)"
+    typeset _ostype="$(uname -s)"
+    typeset _cputype="$(uname -m)"
 
     set +u
     if [ -n "$TARGETOS" ]; then
@@ -283,46 +359,46 @@ function get_architecture
 
     if [ "$_ostype" = Darwin ] && [ "$_cputype" = i386 ]; then
         if sysctl hw.optional.x86_64 | grep -q ': 1'; then
-            local _cputype=x86_64
+            _cputype=x86_64
         fi
     fi
 
     case "$_ostype" in
         Linux | linux)
-            local _os_id="$(awk -F= '$1=="ID" { print $2 ;}' /etc/os-release | tr -d '"')"
-            local _os_version_id="$(awk -F= '$1=="VERSION_ID" { print $2 ;}' /etc/os-release | tr -d '"')"
-            local _ostype="$_os_id$_os_version_id"
+            typeset _os_id="$(awk -F= '$1=="ID" { print $2 ;}' /etc/os-release | tr -d '"')"
+            typeset _os_version_id="$(awk -F= '$1=="VERSION_ID" { print $2 ;}' /etc/os-release | tr -d '"')"
+            _ostype="$_os_id$_os_version_id"
             case "$_ostype" in
                 pop*)
-                    local _ostype="ubuntu$_os_version_id"
+                    _ostype="ubuntu$_os_version_id"
                     ;;
             esac
-            local _os_id_like="$(awk -F= '$1=="ID_LIKE" { print $2 ;}' /etc/os-release | tr -d '"')"
+            typeset _os_id_like="$(awk -F= '$1=="ID_LIKE" { print $2 ;}' /etc/os-release | tr -d '"')"
             case "$_os_id" in
                 linuxmint*)
                     case "$_os_id_like" in
                         ubuntu*)
                             case "$_os_version_id" in
                                 24*) # Ubuntu Noble
-                                    local _ostype="ubuntu24.04"
+                                    _ostype="ubuntu24.04"
                                     ;;
                                 21*) # Ubuntu Jammy
-                                    local _ostype="ubuntu22.04"
+                                    _ostype="ubuntu22.04"
                                     ;;
                                 20*) # Ubuntu Focal
-                                    local _ostype="ubuntu20.04"
+                                    _ostype="ubuntu20.04"
                                     ;;
                             esac
                             ;;
                         debian*) # Debian Bookworm
-                            local _ostype="debian12"
+                            _ostype="debian12"
                             ;;
                     esac
             esac
             case "$_ostype" in
                 ubuntu24*)
                     check_apt_install libc++abi1-18
-                    local _ostype="ubuntu22.04"
+                    _ostype="ubuntu22.04"
                     ;;
                 ubuntu22*)
                     check_apt_install libc++abi1-15
@@ -338,18 +414,18 @@ function get_architecture
                     ;;
                 debian*)
                     check_apt_install libc++abi1-16
-                    local _ostype="debian12"
+                    _ostype="debian12"
                     ;;
                 fedora39* | fedora40* | fedora41*)
                     check_dnf_install libcxxabi
-                    local _ostype="fedora39"
+                    _ostype="fedora39"
                     ;;
                 centos9*)
                     check_yum_install_rpm libcxxabi https://kojipkgs.fedoraproject.org//packages/libcxx/17.0.4/1.fc39/x86_64/libcxxabi-17.0.4-1.fc39.x86_64.rpm
                     ;;
                 arch* | manjaro* | endeavouros* | garuda*)
                     check_pacman_install libc++abi
-                    local _ostype="ubuntu20.04"
+                    _ostype="ubuntu20.04"
                     ;;
                 *)
                     err "no precompiled binaries available for OS: $_ostype"
@@ -357,7 +433,7 @@ function get_architecture
             esac
             ;;
         Darwin)
-            local _ostype=darwin
+            _ostype=darwin
             ;;
         MINGW* | MSYS* | CYGWIN*)
             err "please run this installation script inside Windows Subsystem for Linux (WSL 2)"
@@ -369,10 +445,10 @@ function get_architecture
 
     case "$_cputype" in
         x86_64 | x86-64 | x64 | amd64)
-            local _cputype=x86_64
+            _cputype=x86_64
             ;;
         arm64 | aarch64)
-            local _cputype=aarch64
+            _cputype=aarch64
             ;;
         *)
             err "no precompiled binaries available for CPU architecture: $_cputype"
@@ -382,7 +458,7 @@ function get_architecture
         _cputype="x86_64"
     fi
 
-    local _arch="$_cputype-$_ostype"
+    typeset _arch="$_cputype-$_ostype"
 
     RETVAL="$_arch"
 }
