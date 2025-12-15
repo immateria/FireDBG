@@ -37,6 +37,11 @@ pretty_assertions = { version = "1" }
 [features]
 # The base feature only exports the value reader
 default = ["debugger"]
+
+# Enable LLDB-dependent integration tests in `debugger/tests/*`.
+# These tests can be flaky / environment-dependent on developer machines.
+lldb-tests = ["debugger"]
+
 debugger = [
     "lldb",
     "firedbg-rust-parser",

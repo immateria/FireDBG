@@ -1,3 +1,5 @@
+#![cfg(feature = "lldb-tests")]
+
 mod util;
 use util::*;
 
