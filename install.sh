@@ -1,45 +1,145 @@
-#!/bin/bash
+#!/usr/bin/env zsh
 
-# https://www.gnu.org/software/bash/manual/bash.html#The-Set-Builtin
+# FireDBG installer (zsh)
+# - Uses zsh semantics & conventions
+# - Smarter rustc handling: for newer rustc versions (e.g. 1.91) it
+#   falls back to the latest known compatible FireDBG release
+#   instead of hard-failing.
+
 set -u
 
-get_firedbg_version() {
-    local _rustc_version="$(rustc --version)"
+# Shared return slot for helper functions
+typeset -g RETVAL=""
 
-    case "$_rustc_version" in
-        rustc\ 1.74.*)
-            local _firedbg_version="1.74.2"
-            ;;
-        rustc\ 1.75.*)
-            local _firedbg_version="1.75.1"
-            ;;
-        rustc\ 1.76.*)
-            local _firedbg_version="1.76.0"
-            ;;
-        rustc\ 1.77.*)
-            local _firedbg_version="1.77.1"
-            ;;
-        rustc\ 1.78.*)
-            local _firedbg_version="1.78.0"
-            ;;
-        rustc\ 1.79.*)
-            local _firedbg_version="1.79.0"
-            ;;
-        rustc\ 1.80.*)
-            local _firedbg_version="1.80.0"
-            ;;
-        rustc\ 1.81.*)
-            local _firedbg_version="1.81.0"
-            ;;
-        *)
-            err "no precompiled binaries available for $_rustc_version";
-            ;;
-    esac
+function get_firedbg_version
+{   emulate -L zsh
+    setopt localoptions
 
-    RETVAL="$_firedbg_version"
+    typeset rustc_output version_str major minor short
+    typeset -a parts
+    typeset -A firedbg_versions
+
+    rustc_output=$(rustc --version 2>/dev/null) || err "failed to run 'rustc --version'"
+
+    # Expect: rustc 1.91.0 (....)
+    version_str=${rustc_output#rustc }
+    version_str=${version_str%% *}
+
+    parts=(${(s:.:)version_str})
+    if (( ${#parts} < 2 )); then
+        err "unrecognized rustc version string: ${rustc_output}"
+    fi
+
+    major=${parts[1]}
+    minor=${parts[2]}
+    short="${major}.${minor}"
+
+    # Known mappings (keep this in sync with FireDBG releases)
+    firedbg_versions=(
+        "1.74" "1.74.2"
+        "1.75" "1.75.1"
+        "1.76" "1.76.0"
+        "1.77" "1.77.1"
+        "1.78" "1.78.0"
+        "1.79" "1.79.0"
+        "1.80" "1.80.0"
+        "1.81" "1.81.0"
+    )
+
+    if [[ -n ${firedbg_versions[$short]:-} ]]; then
+        RETVAL="${firedbg_versions[$short]}"
+        return 0
+    fi
+
+    # Fallback: choose the latest known <= current minor
+    typeset best_key="" best_minor=-1 this_minor
+    for k in ${(k)firedbg_versions}; do
+        if [[ ${k%%.*} != "$major" ]]; then
+            continue
+        fi
+        this_minor=${k#*.}
+        if (( this_minor <= minor && this_minor > best_minor )); then
+            best_minor=$this_minor
+            best_key=$k
+        fi
+    done
+
+    if [[ -z "$best_key" ]]; then
+        err "no precompiled binaries available for ${rustc_output}"
+    fi
+
+    say "warning: no precompiled FireDBG binaries for rustc ${short}.*, using ${best_key} (FireDBG ${firedbg_versions[$best_key]}) instead"
+    RETVAL="${firedbg_versions[$best_key]}"
 }
 
-main() {
+function main
+{   emulate -L zsh
+    setopt localoptions
+
+    # Decide whether to use prebuilt binaries or build from source
+    typeset rustc_output version_str
+    typeset -a parts
+    typeset major minor
+
+    rustc_output=$(rustc --version 2>/dev/null) || err "failed to run 'rustc --version'"
+
+    version_str=${rustc_output#rustc }
+    version_str=${version_str%% *}
+    parts=(${(s:.:)version_str})
+    if (( ${#parts} < 2 )); then
+        err "unrecognized rustc version string: ${rustc_output}"
+    fi
+
+    major=${parts[1]}
+    minor=${parts[2]}
+
+    # If rustc is newer than the latest prebuilt we know (1.81),
+    # prefer building from source so versions match.
+    if (( major > 1 || (major == 1 && minor > 81) )); then
+        install_from_source "${rustc_output}"
+    else
+        install_prebuilt
+    fi
+}
+
+function run_self_test
+{   emulate -L zsh
+    setopt localoptions
+
+    local _cargo_home="$1"
+    local _self_test="${_cargo_home}/bin/firedbg-lib/debugger-self-test"
+
+    if [ ! -d "${_self_test}" ]; then
+        printf '%s\n' 'info: skipping FireDBG self tests (debugger-self-test assets not found)' 1>&2
+        return 0
+    fi
+
+    printf '%s\n' 'info: performing FireDBG self tests' 1>&2
+
+    cd "${_self_test}"
+    "${_cargo_home}/bin/firedbg" run debugger_self_test --output "${_self_test}/output.firedbg.ss"
+    cd - > /dev/null
+
+    if [ $? != 0 ]; then
+        say "fail to run FireDBG debugger"
+        exit 1
+    fi
+
+    "${_cargo_home}/bin/firedbg-indexer" --input "${_self_test}/output.firedbg.ss" \
+        validate --json "${_self_test}/expected_data.json"
+
+    if [ $? != 0 ]; then
+        say "fail to validate FireDBG debugger result"
+        exit 1
+    fi
+
+    printf '%s\n' 'info: completed FireDBG self tests' 1>&2
+}
+
+function install_prebuilt
+{   emulate -L zsh
+    setopt localoptions
+
     downloader --check
     need_cmd uname
     need_cmd mktemp
@@ -61,7 +161,7 @@ main() {
 
     local _url="https://github.com/SeaQL/FireDBG.for.Rust/releases/download/$_firedbg_version/$_arch.tar.gz"
     local _dir="$(mktemp -d 2>/dev/null || ensure mktemp -d -t FireDBG)"
-    local _file="$_dir/$_arch.tar.gz"
+    local _file="${_dir}/${_arch}.tar.gz"
 
     set +u
     local _cargo_home="$CARGO_HOME"
@@ -90,35 +190,84 @@ main() {
     ignore rm -rf "$_cargo_bin/firedbg*"
     ignore rm -rf "$_cargo_bin/firedbg-lib"
 
-    ensure mv "$_dir/firedbg-lib" "$_cargo_bin/firedbg-lib"
-    ensure mv "$_dir/firedbg" "$_cargo_bin/firedbg"
-    ensure mv "$_dir/firedbg-indexer" "$_cargo_bin/firedbg-indexer"
-    ensure mv "$_dir/firedbg-debugger" "$_cargo_bin/firedbg-debugger"
+    ensure mv "$_dir/firedbg-lib"       "$_cargo_bin/firedbg-lib"
+    ensure mv "$_dir/firedbg"           "$_cargo_bin/firedbg"
+    ensure mv "$_dir/firedbg-indexer"   "$_cargo_bin/firedbg-indexer"
+    ensure mv "$_dir/firedbg-debugger"  "$_cargo_bin/firedbg-debugger"
 
-    printf '%s\n' 'info: performing FireDBG self tests' 1>&2
-
-    local _self_test="$_cargo_home/bin/firedbg-lib/debugger-self-test"
-
-    cd "$_self_test"
-    "$_cargo_home/bin/firedbg" run debugger_self_test --output "$_self_test/output.firedbg.ss"
-    cd - > /dev/null
-
-    if [ $? != 0 ]; then
-        say "fail to run FireDBG debugger"
-        exit 1
-    fi
-
-    "$_cargo_home/bin/firedbg-indexer" --input "$_self_test/output.firedbg.ss" validate --json "$_self_test/expected_data.json"
-
-    if [ $? != 0 ]; then
-        say "fail to validate FireDBG debugger result"
-        exit 1
-    fi
-
-    printf '%s\n' 'info: completed FireDBG self tests' 1>&2
+    run_self_test "$_cargo_home"
 }
 
-get_architecture() {
+function install_from_source
+{   emulate -L zsh
+    setopt localoptions
+
+    local rustc_output="${1:-}"
+    say "info: rustc is newer than latest prebuilt; installing FireDBG from source"
+
+    downloader --check
+    need_cmd cargo
+    need_cmd uname
+    need_cmd mktemp
+    need_cmd mkdir
+    need_cmd rm
+    need_cmd tar
+    need_cmd which
+    need_cmd unzip
+
+    set +u
+    local _cargo_home="$CARGO_HOME"
+    if [ -z "$_cargo_home" ]; then
+        _cargo_home="$HOME/.cargo";
+    fi
+    local _cargo_bin="$_cargo_home/bin"
+    ensure mkdir -p "$_cargo_bin"
+    set -u
+
+    if [[ ! -f "Cargo.toml" || ! -f "command/Cargo.toml" ]]; then
+        err "source install requested but FireDBG source tree not found; clone the repository and run install.sh from its root"
+    fi
+
+    if [[ ! -d "lldb" ]]; then
+        typeset vsix_arch vsix_name
+        case "$(uname -m)" in
+            x86_64|x86-64|x64|amd64)
+                vsix_arch="x86_64-darwin"
+                ;;
+            arm64|aarch64)
+                vsix_arch="aarch64-darwin"
+                ;;
+            *)
+                err "unsupported CPU architecture for source install: $(uname -m)"
+                ;;
+        esac
+        vsix_name="codelldb-${vsix_arch}.vsix"
+        say "info: downloading codelldb bundle (${vsix_arch}) for source build"
+        downloader "https://github.com/vadimcn/codelldb/releases/download/v1.10.0/${vsix_name}" "${vsix_name}"
+        ensure unzip -q "${vsix_name}" -d "codelldb-${vsix_arch}"
+        ensure mv "codelldb-${vsix_arch}/extension/lldb" "lldb"
+    fi
+
+    say "info: building FireDBG from source (command, debugger, indexer)"
+    ensure cargo build --manifest-path "command/Cargo.toml"
+    ensure cargo build --manifest-path "debugger/Cargo.toml"
+    ensure cargo build --manifest-path "indexer/Cargo.toml"
+
+    say "info: installing FireDBG binaries from target/debug to '${_cargo_bin}'"
+    ignore rm -f "${_cargo_bin}/firedbg" "${_cargo_bin}/firedbg-indexer" "${_cargo_bin}/firedbg-debugger"
+    ignore rm -rf "${_cargo_bin}/firedbg-lib"
+
+    ensure ln -sf "$PWD/target/debug/firedbg"           "${_cargo_bin}/firedbg"
+    ensure ln -sf "$PWD/target/debug/firedbg-indexer"  "${_cargo_bin}/firedbg-indexer"
+    ensure ln -sf "$PWD/target/debug/firedbg-debugger" "${_cargo_bin}/firedbg-debugger"
+    ensure ln -sfn "$PWD/lldb"                         "${_cargo_bin}/firedbg-lib"
+
+    run_self_test "$_cargo_home"
+}
+
+function get_architecture
+{   emulate -L zsh
+    setopt localoptions
     local _ostype="$(uname -s)"
     local _cputype="$(uname -m)"
 
@@ -238,49 +387,67 @@ get_architecture() {
     RETVAL="$_arch"
 }
 
-say() {
+function say
+{   emulate -L zsh
+    setopt localoptions
     echo "FireDBG: $1"
 }
 
-err() {
+function err
+{   emulate -L zsh
+    setopt localoptions
     say "$1" >&2
     exit 1
 }
 
-need_cmd() {
+function need_cmd
+{   emulate -L zsh
+    setopt localoptions
     if ! check_cmd "$1"
     then err "need '$1' (command not found)"
     fi
 }
 
-check_cmd() {
+function check_cmd
+{   emulate -L zsh
+    setopt localoptions
     command -v "$1" > /dev/null 2>&1
     return $?
 }
 
-need_ok() {
+function need_ok
+{   emulate -L zsh
+    setopt localoptions
     if [ $? != 0 ]; then err "$1"; fi
 }
 
-assert_nz() {
+function assert_nz
+{   emulate -L zsh
+    setopt localoptions
     if [ -z "$1" ]; then err "assert_nz $2"; fi
 }
 
 # Run a command that should never fail. If the command fails execution
 # will immediately terminate with an error showing the failing
 # command.
-ensure() {
+function ensure
+{   emulate -L zsh
+    setopt localoptions
     "$@"
     need_ok "command failed: $*"
 }
 
-ignore() {
+function ignore
+{   emulate -L zsh
+    setopt localoptions
     "$@"
 }
 
 # This wraps curl or wget. Try curl first, if not installed,
 # use wget instead.
-downloader() {
+function downloader
+{   emulate -L zsh
+    setopt localoptions
     if check_cmd curl
     then _dld=curl
     elif check_cmd wget
@@ -298,31 +465,41 @@ downloader() {
     fi
 }
 
-check_apt_install() {
+function check_apt_install
+{   emulate -L zsh
+    setopt localoptions
     if [ "$(dpkg-query -l | grep $1 | wc -l)" = 0 ]; then
         run_sudo apt install -y $1
     fi
 }
 
-check_dnf_install() {
+function check_dnf_install
+{   emulate -L zsh
+    setopt localoptions
     if [ "$(dnf list installed | grep $1 | wc -l)" = 0 ]; then
         run_sudo dnf install -y $1
     fi
 }
 
-check_yum_install_rpm() {
+function check_yum_install_rpm
+{   emulate -L zsh
+    setopt localoptions
     if [ "$(dnf list installed | grep $1 | wc -l)" = 0 ]; then
         run_sudo yum install -y $2
     fi
 }
 
-check_pacman_install() {
+function check_pacman_install
+{   emulate -L zsh
+    setopt localoptions
     if [ "$(pacman -Q | grep $1 | wc -l)" = 0 ]; then
         run_sudo pacman -S --noconfirm $1
     fi
 }
 
-run_sudo() {
+function run_sudo
+{   emulate -L zsh
+    setopt localoptions
     if ! check_cmd "sudo"
     then $@
     else sudo $@
