@@ -22,7 +22,15 @@
     docker run --name firedbg-<OS_NAME> --rm -it -v $(pwd):/FireDBG.for.Rust firedbg-<OS_NAME>
     ```
 
-4. FireDBG requires [`codelldb`](https://github.com/vadimcn/codelldb) binaries when building from source, the binaries should be placed under `FireDBG.for.Rust/lldb` directory
+4. FireDBG requires [`codelldb`](https://github.com/vadimcn/codelldb) LLDB runtime assets when building from source.
+
+    Recommended (keeps repo checkout clean): use the source-first installer, which caches CodeLLDB assets under a user cache directory and links `~/.cargo/bin/firedbg-lib` to it.
+
+    ```shell
+    ./install.sh --source
+    ```
+
+    Manual (legacy): download a CodeLLDB `.vsix` bundle, unzip it, and make the `lldb` directory available as `firedbg-lib`.
 
     ```shell
     # Download the `vsix` from GitHub
@@ -31,7 +39,10 @@
     # Unzip it
     unzip -q "codelldb-x86_64-linux.vsix" -d "codelldb-x86_64-linux"
 
-    # Place the binaries under `FireDBG.for.Rust/lldb` directory
+    # Option A: keep it in-place and symlink firedbg-lib to it
+    ln -sfn "$PWD/codelldb-x86_64-linux/extension/lldb" ~/.cargo/bin/firedbg-lib
+
+    # Option B: move it into this repo's `lldb/` folder (not recommended; clutters the checkout)
     mv "codelldb-x86_64-linux/extension/lldb" "FireDBG.for.Rust/lldb"
     ```
 

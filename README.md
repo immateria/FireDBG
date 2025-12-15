@@ -8,6 +8,20 @@
 
 For more information on the architecture of FireDBG, please read [Architecture of FireDBG](https://firedbg.sea-ql.org/blog/2023-12-11-architecture-of-firedbg).
 
+## Quick start (source-first)
+
+From the repo root:
+
+```shell
+./install.sh
+firedbg doctor
+```
+
+More details:
+- `INSTALL.md`
+- `Troubleshooting.md`
+- `docs/context/firedbg-architecture-context.md`
+
 #### `codelldb`
 
 lldb binding; forked from codelldb

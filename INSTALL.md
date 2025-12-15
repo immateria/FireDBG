@@ -1,62 +1,73 @@
 ## Installing FireDBG
 
-### Installer
+This repository supports a **source-first** installation flow.
 
-Run the following command to install the prebuilt binaries of FireDBG.
+- Recommended: build and install from source using `install.sh`.
+- Optional: use prebuilt binaries (opt-in; typically from the upstream SeaQL releases).
+
+If anything fails, run `firedbg doctor` for diagnostics and fix hints.
+
+### Source installation (recommended)
+
+1. Clone this repository and run the installer from the repo root:
 
 ```shell
-curl https://raw.githubusercontent.com/SeaQL/FireDBG.for.Rust/main/install.sh -sSf | sh
+./install.sh
 ```
 
-FireDBG binaries will be installed in `~/.cargo/bin` and a debugger self test will be conducted to verify the installation. Expect to see:
+This will:
+- build `firedbg`, `firedbg-debugger`, and `firedbg-indexer` with `cargo build`
+- install (symlink) binaries into your cargo bin directory (usually `~/.cargo/bin`)
+- download CodeLLDB’s `lldb` runtime bundle **into a user cache directory** (not into your repo checkout)
+- point `~/.cargo/bin/firedbg-lib` at that cached `lldb` directory
+
+You can force modes / maintenance actions:
+
+```shell
+# Source build (explicit)
+./install.sh --source
+
+# Remove cached CodeLLDB assets
+./install.sh --clean-cache
+
+# Opt-in: prebuilt binaries (from upstream releases)
+./install.sh --prebuilt
+```
+
+#### Cache directory locations
+
+The installer chooses the cache directory in this order:
+- `$FIREDBG_CACHE_DIR` (if set)
+- `$XDG_CACHE_HOME/firedbg` (if set)
+- macOS fallback: `~/Library/Caches/firedbg`
+- other fallback: `~/.cache/firedbg`
+
+### Verify installation
+
+A debugger self-test is run automatically by the installer. If successful, expect to see:
 
 ```shell
 info: completed FireDBG self tests
 ```
 
-In case you got error messages when performing self test, read [Troubleshooting Guide](https://github.com/SeaQL/FireDBG.for.Rust/blob/main/Troubleshooting.md) for the solution of common errors.
+If the self-test fails, consult `Troubleshooting.md` and run:
 
-### Manual Installation
+```shell
+firedbg doctor
+```
 
-If you saw `FireDBG: no precompiled binaries available for OS: ...`, you can manually download a prebuilt binaries of compatible OS.
+### Prebuilt binaries (optional)
 
-1. Go to the [FireDBG release](https://github.com/SeaQL/FireDBG.for.Rust/releases) page
+If you prefer prebuilt binaries, you can opt in with:
 
-2. Download a prebuilt binaries of compatible OS
+```shell
+./install.sh --prebuilt
+```
 
-    ```shell
-    # Download the prebuilt binaries
-    curl -sSfL "https://github.com/SeaQL/FireDBG.for.Rust/releases/download/1.74.1/x86_64-ubuntu22.04.tar.gz" -o "x86_64-ubuntu22.04.tar.gz"
+Or manually download from upstream releases:
 
-    # General form
-    curl -sSfL "https://github.com/SeaQL/FireDBG.for.Rust/releases/download/<LATEST_VERSION>/<ARC>-<OS>.tar.gz" -o "<ARC>-<OS>.tar.gz"
-    ```
+1. Go to the upstream releases page
+2. Download a compatible `*.tar.gz`
+3. Extract and copy into `~/.cargo/bin`
 
-3. Unzip the `.tar.gz`
-
-    ```shell
-    # Unzip
-    mkdir -p "x86_64-ubuntu22.04" && tar xf "x86_64-ubuntu22.04.tar.gz" --strip-components 1 -C "x86_64-ubuntu22.04"
-
-    # General form
-    mkdir -p "<ARCH>-<OS>" && tar xf "<ARCH>-<OS>.tar.gz" --strip-components 1 -C "<ARCH>-<OS>"
-    ```
-
-4. Copy FireDBG binaries into `$HOME/.cargo/bin`
-
-    ```shell
-    # Copy
-    mkdir -p "$HOME/.cargo/bin" && cp -r x86_64-ubuntu22.04/* "$HOME/.cargo/bin/"
-
-    # General form
-    mkdir -p "$HOME/.cargo/bin" && cp -r <ARCH>-<OS>/* "$HOME/.cargo/bin/"
-    ```
-
-5. Perform debugger self tests
-
-    ```shell
-    cd "$HOME/.cargo/bin/firedbg-lib/debugger-self-test"
-    rm -f *.firedbg.ss
-    firedbg run debugger_self_test --output output.firedbg.ss
-    firedbg-indexer --input output.firedbg.ss validate --json expected_data.json && echo "info: completed FireDBG self tests"
-    ```
+(See upstream project docs for OS/arch naming.)
