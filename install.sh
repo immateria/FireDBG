@@ -347,7 +347,11 @@ function install_from_source
 
     say "info: building FireDBG from source (command, debugger, indexer)"
     ensure cargo build --manifest-path "command/Cargo.toml"
-    ensure cargo build --manifest-path "debugger/Cargo.toml"
+
+    # The debugger needs liblldb at link time; point it at the cached CodeLLDB bundle.
+    # This avoids accidentally linking against a stale repo-local `./lldb/` folder.
+    ensure env FIREDBG_LLDB_DIR="$cache_lldb" cargo build --manifest-path "debugger/Cargo.toml"
+
     ensure cargo build --manifest-path "indexer/Cargo.toml"
 
     say "info: installing FireDBG binaries from target/debug to '${_cargo_bin}'"
