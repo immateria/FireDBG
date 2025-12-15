@@ -2,8 +2,13 @@ use crate::{raw, Binary, Dependency, Example, Package, Test, Workspace};
 
 pub(crate) fn parse_workspace(raw_workspace: raw::Workspace) -> Workspace {
     let root_dir = raw_workspace.workspace_root;
+    let mut packages = parse_packages(raw_workspace.packages, &root_dir);
+
+    // Stable ordering makes CLI output and tests deterministic.
+    packages.sort_by(|a, b| a.name.cmp(&b.name));
+
     Workspace {
-        packages: parse_packages(raw_workspace.packages, &root_dir),
+        packages,
         target_dir: raw_workspace.target_directory,
         root_dir,
     }
@@ -35,14 +40,33 @@ fn parse_packages(raw_packages: Vec<raw::Package>, workspace_root_dir: &str) -> 
                 .targets
                 .iter()
                 .any(|target| target.kind.contains(&format!("lib")));
+            let mut dependencies = parse_dependencies(raw_package.dependencies);
+            dependencies.sort_by(|a, b| a.name.cmp(&b.name));
+
+            let mut binaries = parse_binaries(raw_package.targets.clone());
+            binaries.sort_by(|a, b| {
+                // Prefer the "primary" binary (not under src/bin) first.
+                let a_primary = !a.src_path.contains("/src/bin/");
+                let b_primary = !b.src_path.contains("/src/bin/");
+                b_primary
+                    .cmp(&a_primary)
+                    .then_with(|| a.name.cmp(&b.name))
+            });
+
+            let mut tests = parse_tests(raw_package.targets.clone());
+            tests.sort_by(|a, b| a.name.cmp(&b.name));
+
+            let mut examples = parse_examples(raw_package.targets);
+            examples.sort_by(|a, b| a.name.cmp(&b.name));
+
             Package {
                 name: raw_package.name,
                 version: raw_package.version,
                 root_dir,
-                dependencies: parse_dependencies(raw_package.dependencies),
-                binaries: parse_binaries(raw_package.targets.clone()),
-                tests: parse_tests(raw_package.targets.clone()),
-                examples: parse_examples(raw_package.targets),
+                dependencies,
+                binaries,
+                tests,
+                examples,
                 has_lib,
             }
         })
