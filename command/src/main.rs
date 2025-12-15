@@ -130,6 +130,11 @@ enum SubCommand {
         #[structopt(default_value = "1")]
         idx: usize,
     },
+    /// Diagnose installation and environment
+    Doctor {
+        #[structopt(long)]
+        json_format: bool,
+    },
     #[structopt(setting = structopt::clap::AppSettings::Hidden)]
     ListConfig {
         #[structopt(long)]
@@ -400,7 +405,7 @@ async fn main() -> Result<()> {
                     .arg("--");
                 command
             } else {
-                let home = firedbg_home.unwrap_or(cargo_bin()?);
+                let home = firedbg_home.clone().unwrap_or(cargo_bin()?);
                 let home = home.trim_end_matches('/');
                 std::process::Command::new(format!("{home}/firedbg-indexer"))
             };
@@ -415,6 +420,10 @@ async fn main() -> Result<()> {
             console::status("Running", &format!("`{:?}`", command));
 
             command.spawn()?.wait()?;
+        }
+        SubCommand::Doctor { json_format } => {
+            doctor(workspace, firedbg_home, json_format)
+                .context("Fail to run doctor")?;
         }
         SubCommand::ListConfig { json_format } => {
             let config =
@@ -647,6 +656,160 @@ async fn check_firedbg_version_updated(workspace: &Workspace) -> Result<()> {
     Ok(())
 }
 
+fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool) -> Result<()> {
+    #[derive(Debug, Serialize)]
+    struct DoctorReport {
+        workspace_root: String,
+        rustc: Option<String>,
+        cargo: Option<String>,
+        cargo_bin: Option<String>,
+        mode: String,
+        home: Option<String>,
+        installed: BTreeMap<String, bool>,
+        lldb: Option<LldbReport>,
+        code: Option<CommandReport>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct LldbReport {
+        binary: String,
+        python_dir: String,
+        debugserver: Option<String>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct CommandReport {
+        present: bool,
+        version: Option<String>,
+    }
+
+    fn cmd_version(cmd: &str, args: &[&str]) -> Option<String> {
+        let output = ProcessCommand::new(cmd).args(args).output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !stdout.is_empty() {
+            return Some(stdout.lines().next().unwrap_or("").to_string());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if !stderr.is_empty() {
+            return Some(stderr.lines().next().unwrap_or("").to_string());
+        }
+        None
+    }
+
+    let rustc = cmd_version("rustc", &["--version"]);
+    let cargo = cmd_version("cargo", &["--version"]);
+
+    let cargo_bin = cargo_bin().ok();
+    let using_cargo_run = env::var("CARGO_PKG_NAME").is_ok();
+
+    let (mode, home) = if using_cargo_run {
+        ("cargo-run".to_string(), None)
+    } else {
+        let home = firedbg_home.or(cargo_bin.clone());
+        ("installed".to_string(), home)
+    };
+
+    let mut installed = BTreeMap::new();
+    if let Some(home) = home.as_ref() {
+        let home = home.trim_end_matches('/');
+        for bin in ["firedbg", "firedbg-debugger", "firedbg-indexer"] {
+            installed.insert(bin.to_string(), Path::new(&format!("{home}/{bin}")).is_file());
+        }
+        installed.insert(
+            "firedbg-lib".to_string(),
+            Path::new(&format!("{home}/firedbg-lib")).exists(),
+        );
+    }
+
+    let code_version = cmd_version("code", &["--version"]);
+    let code = CommandReport {
+        present: code_version.is_some(),
+        version: code_version,
+    };
+
+    let lldb = detect_lldb_paths().map(|p| LldbReport {
+        binary: p.binary,
+        python_dir: p.python_dir.display().to_string(),
+        debugserver: p.debugserver,
+    });
+
+    let report = DoctorReport {
+        workspace_root: workspace.root_dir.clone(),
+        rustc,
+        cargo,
+        cargo_bin,
+        mode,
+        home,
+        installed,
+        lldb,
+        code: Some(code),
+    };
+
+    if json_format {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
+    console::status("Workspace", &report.workspace_root);
+
+    if let Some(v) = &report.rustc {
+        console::status("rustc", v);
+    } else {
+        console::warn("rustc", "not found");
+    }
+
+    if let Some(v) = &report.cargo {
+        console::status("cargo", v);
+    } else {
+        console::warn("cargo", "not found");
+    }
+
+    console::status("Mode", &report.mode);
+
+    if let Some(cargo_bin) = &report.cargo_bin {
+        console::status("cargo bin", cargo_bin);
+    }
+
+    if let Some(home) = &report.home {
+        console::status("Home", home);
+
+        for (k, v) in report.installed.iter() {
+            if *v {
+                console::status(k, "present");
+            } else {
+                console::warn(k, "missing");
+            }
+        }
+    } else {
+        console::status("Home", "(using cargo run)");
+    }
+
+    match &report.lldb {
+        Some(lldb) => {
+            console::status("LLDB", &lldb.binary);
+            console::status("PYTHONPATH", &lldb.python_dir);
+            match &lldb.debugserver {
+                Some(ds) => console::status("lldb-server", ds),
+                None => console::warn("lldb-server", "not found"),
+            }
+        }
+        None => console::warn("LLDB", "not detected (try installing llvm/lldb or Xcode tools)"),
+    }
+
+    if let Some(code) = &report.code {
+        if code.present {
+            console::status("code", code.version.as_deref().unwrap_or("present"));
+        } else {
+            console::warn("code", "not found (VS Code CLI)");
+        }
+    }
+
+    Ok(())
+}
+
 async fn run_binary(
     workspace: &Workspace,
     trace_cfg: &[(&Package, cfg::Trace)],
@@ -659,7 +822,7 @@ async fn run_binary(
     let sub_command = "run";
     let build_cmd_output = binary.build(package).context("Fail to build binary")?;
     if !build_cmd_output.status.success() {
-        panic!("Fail to compile binary");
+        anyhow::bail!("Failed to compile binary `{}`", binary.name);
     }
     let executable = binary.get_binary_path(workspace);
     let name = &binary.name;
@@ -693,7 +856,7 @@ async fn run_test(
         .build(package)
         .context("Fail to build integration test")?;
     if !build_cmd_output.status.success() {
-        panic!("Fail to compile integration test");
+        anyhow::bail!("Failed to compile integration test `{}`", test.name);
     }
     let executable = test
         .get_test_path(workspace, package)
@@ -728,7 +891,7 @@ async fn run_unit_test(
         .build_unit_test()
         .context("Fail to build unit test")?;
     if !build_cmd_output.status.success() {
-        panic!("Fail to compile unit test");
+        anyhow::bail!("Failed to compile unit tests for package `{}`", package.name);
     }
     let executable = package
         .get_unit_test_path(workspace)
@@ -761,7 +924,7 @@ async fn run_example(
     let sub_command = "example";
     let build_cmd_output = example.build(package).context("Fail to build example")?;
     if !build_cmd_output.status.success() {
-        panic!("Fail to compile example");
+        anyhow::bail!("Failed to compile example `{}`", example.name);
     }
     let executable = example.get_example_path(workspace);
     let name = &example.name;
