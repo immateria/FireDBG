@@ -141,110 +141,110 @@ use firedbg_rust_parser::*;
 pub fn get_breakpoints() -> Vec<FunctionDef> {
     vec![
         FunctionDef {
-            ty:             FunctionType::FreeFn {
+            ty: FunctionType::FreeFn {
                 fn_name: "func".into(),
                 is_async: false,
                 return_type: true,
             },
-            loc:             BreakableSpan {
-                start:                 LineColumn {
+            loc: BreakableSpan {
+                start: LineColumn {
                     line: 1,
                     column: Some(19),
                 },
-                end:                 LineColumn {
+                end: LineColumn {
                     line: 2,
                     column: Some(5),
                 },
             },
-            end:             LineColumn {
+            end: LineColumn {
                 line: 136,
                 column: Some(0),
             },
         },
         FunctionDef {
-            ty:             FunctionType::NestedFn {
+            ty: FunctionType::NestedFn {
                 fn_name: "object_func".into(),
                 parent_func: "func".into(),
                 is_async: false,
                 return_type: true,
             },
-            loc:             BreakableSpan {
-                start:                 LineColumn {
+            loc: BreakableSpan {
+                start: LineColumn {
                     line: 91,
                     column: Some(39),
                 },
-                end:                 LineColumn {
+                end: LineColumn {
                     line: 92,
                     column: Some(13),
                 },
             },
-            end:             LineColumn {
+            end: LineColumn {
                 line: 94,
                 column: Some(8),
             },
         },
         FunctionDef {
-            ty:             FunctionType::NestedFn {
+            ty: FunctionType::NestedFn {
                 fn_name: "cal_e".into(),
                 parent_func: "func".into(),
                 is_async: false,
                 return_type: true,
             },
-            loc:             BreakableSpan {
-                start:                 LineColumn {
+            loc: BreakableSpan {
+                start: LineColumn {
                     line: 100,
                     column: Some(28),
                 },
-                end:                 LineColumn {
+                end: LineColumn {
                     line: 101,
                     column: Some(13),
                 },
             },
-            end:             LineColumn {
+            end: LineColumn {
                 line: 107,
                 column: Some(8),
             },
         },
         FunctionDef {
-            ty:             FunctionType::NestedFn {
+            ty: FunctionType::NestedFn {
                 fn_name: "cal_e".into(),
                 parent_func: "func".into(),
                 is_async: false,
                 return_type: true,
             },
-            loc:             BreakableSpan {
-                start:                 LineColumn {
+            loc: BreakableSpan {
+                start: LineColumn {
                     line: 111,
                     column: Some(28),
                 },
-                end:                 LineColumn {
+                end: LineColumn {
                     line: 112,
                     column: Some(13),
                 },
             },
-            end:             LineColumn {
+            end: LineColumn {
                 line: 118,
                 column: Some(8),
             },
         },
         FunctionDef {
-            ty:             FunctionType::NestedFn {
+            ty: FunctionType::NestedFn {
                 fn_name: "assign_to_stmt".into(),
                 parent_func: "func".into(),
                 is_async: false,
                 return_type: true,
             },
-            loc:             BreakableSpan {
-                start:                 LineColumn {
+            loc: BreakableSpan {
+                start: LineColumn {
                     line: 129,
                     column: Some(46),
                 },
-                end:                 LineColumn {
+                end: LineColumn {
                     line: 130,
                     column: Some(9),
                 },
             },
-            end:             LineColumn {
+            end: LineColumn {
                 line: 133,
                 column: Some(4),
             },

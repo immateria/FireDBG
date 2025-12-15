@@ -3,6 +3,7 @@ name = "firedbg-stream-indexer"
 version = "1.81.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+build = "build.rs"
 authors = [
     "Chris Tsang <chris.2y3@outlook.com>",
     "Billy Chan <ccw.billy.123@gmail.com>",
