@@ -666,9 +666,18 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
         mode: String,
         home: Option<String>,
         installed: BTreeMap<String, bool>,
+        firedbg_lib: Option<FiredbgLibReport>,
         lldb: Option<LldbReport>,
+        pythonpath_effective: Option<String>,
         code: Option<CommandReport>,
         hints: Vec<String>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct FiredbgLibReport {
+        path: String,
+        exists: bool,
+        has_lib_dir: bool,
     }
 
     #[derive(Debug, Serialize)]
@@ -720,18 +729,34 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
     };
 
     let mut installed = BTreeMap::new();
+    let mut firedbg_lib: Option<FiredbgLibReport> = None;
+
     if let Some(home) = home.as_ref() {
         let home = home.trim_end_matches('/');
         for bin in ["firedbg", "firedbg-debugger", "firedbg-indexer"] {
             installed.insert(bin.to_string(), Path::new(&format!("{home}/{bin}")).is_file());
         }
-        installed.insert(
-            "firedbg-lib".to_string(),
-            Path::new(&format!("{home}/firedbg-lib")).exists(),
-        );
 
-        if installed.values().any(|v| !*v) {
-            hints.push("Run the installer from a FireDBG checkout: `./install.sh` (source build)".to_string());
+        let firedbg_lib_path_str = format!("{home}/firedbg-lib");
+        let firedbg_lib_path = Path::new(&firedbg_lib_path_str);
+        let firedbg_lib_exists = firedbg_lib_path.exists();
+        let firedbg_lib_has_lib_dir = firedbg_lib_path.join("lib").is_dir();
+
+        installed.insert("firedbg-lib".to_string(), firedbg_lib_exists);
+        firedbg_lib = Some(FiredbgLibReport {
+            path: firedbg_lib_path_str,
+            exists: firedbg_lib_exists,
+            has_lib_dir: firedbg_lib_has_lib_dir,
+        });
+
+        if !firedbg_lib_exists {
+            hints.push("Missing `firedbg-lib` (LLDB runtime assets). Run `./install.sh` from a FireDBG checkout.".to_string());
+        } else if !firedbg_lib_has_lib_dir {
+            hints.push("`firedbg-lib` exists but does not contain a `lib/` directory; it should point at CodeLLDB's `lldb` folder. Re-run `./install.sh` (source) to fix.".to_string());
+        }
+
+        if installed.iter().any(|(k, v)| k != "firedbg-lib" && !*v) {
+            hints.push("Missing FireDBG binaries in your install home. Re-run `./install.sh` (source) or ensure your cargo bin dir is on PATH.".to_string());
         }
     } else {
         hints.push("If you intended to use installed binaries, install them into your cargo bin dir (default: `~/.cargo/bin`)".to_string());
@@ -755,10 +780,27 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
         debugserver: p.debugserver,
     });
 
+    let pythonpath_effective = lldb.as_ref().map(|paths| {
+        match env::var_os("PYTHONPATH") {
+            Some(existing) => format!(
+                "{}:{}",
+                paths.python_dir,
+                existing.to_string_lossy()
+            ),
+            None => paths.python_dir.clone(),
+        }
+    });
+
     match &lldb {
-        Some(p) if p.debugserver.is_none() => {
-            if cfg!(target_os = "macos") {
-                hints.push("macOS: install Xcode Command Line Tools (`xcode-select --install`) or full Xcode so `lldb-server`/`debugserver` is available".to_string());
+        Some(p) => {
+            if !Path::new(&p.python_dir).is_dir() {
+                hints.push("LLDB was detected but its python dir does not exist. This usually means `lldb -P` returned a stale path; reinstall LLDB / Xcode tools.".to_string());
+            }
+
+            if p.debugserver.is_none() {
+                if cfg!(target_os = "macos") {
+                    hints.push("macOS: install Xcode Command Line Tools (`xcode-select --install`) or full Xcode so `lldb-server`/`debugserver` is available".to_string());
+                }
             }
         }
         None => {
@@ -769,7 +811,6 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
                 hints.push("Linux: install LLDB (package name varies; e.g. `lldb` / `llvm`)".to_string());
             }
         }
-        _ => {}
     }
 
     let report = DoctorReport {
@@ -780,7 +821,9 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
         mode,
         home,
         installed,
+        firedbg_lib,
         lldb,
+        pythonpath_effective,
         code: Some(code),
         hints,
     };
@@ -820,6 +863,16 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
                 console::warn(k, "missing");
             }
         }
+
+        if let Some(lib) = &report.firedbg_lib {
+            if lib.exists {
+                if lib.has_lib_dir {
+                    console::status("firedbg-lib", &format!("ok ({})", lib.path));
+                } else {
+                    console::warn("firedbg-lib", &format!("missing lib/ ({})", lib.path));
+                }
+            }
+        }
     } else {
         console::status("Home", "(using cargo run)");
     }
@@ -827,7 +880,10 @@ fn doctor(workspace: &Workspace, firedbg_home: Option<String>, json_format: bool
     match &report.lldb {
         Some(lldb) => {
             console::status("LLDB", &lldb.binary);
-            console::status("PYTHONPATH", &lldb.python_dir);
+            console::status("LLDB python", &lldb.python_dir);
+            if let Some(py) = &report.pythonpath_effective {
+                console::status("PYTHONPATH", py);
+            }
             match &lldb.debugserver {
                 Some(ds) => console::status("lldb-server", ds),
                 None => console::warn("lldb-server", "not found"),
