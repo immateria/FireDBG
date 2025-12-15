@@ -6,3 +6,8 @@ firedbg/
 codelldb-*.vsix
 codelldb-*/
 lldb/
+
+# Local status logs / diagnostics (generated during runs)
+firedbg-status*.json
+firedbg-status*.log
+**/firedbg/status/

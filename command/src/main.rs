@@ -422,7 +422,10 @@ async fn main() -> Result<()> {
 
             console::status("Running", &format!("`{:?}`", command));
 
-            command.spawn()?.wait()?;
+            let status = command.spawn()?.wait()?;
+            if !status.success() {
+                anyhow::bail!("indexer exited with status {status}");
+            }
         }
         SubCommand::Doctor { json_format, deep } => {
             doctor(workspace, firedbg_home, json_format, deep)
@@ -659,6 +662,68 @@ async fn check_firedbg_version_updated(workspace: &Workspace) -> Result<()> {
     Ok(())
 }
 
+fn detect_macos_developer_mode_enabled() -> Option<bool> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+
+    let output = ProcessCommand::new("/usr/sbin/DevToolsSecurity")
+        .arg("-status")
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout).to_lowercase();
+    if text.contains("enabled") {
+        Some(true)
+    } else if text.contains("disabled") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn write_status_log_at_sync<T: Serialize>(
+    workspace: &Workspace,
+    kind: &str,
+    timestamp_ms: u128,
+    record: &T,
+) -> Result<String> {
+    let firedbg_dir = workspace.get_firedbg_dir();
+    let status_dir = format!("{firedbg_dir}/status");
+    fs::create_dir_all(&status_dir)
+        .with_context(|| format!("Fail to create directory: `{status_dir}`"))?;
+
+    let path = format!("{status_dir}/{timestamp_ms}-{kind}.json");
+    let content = serde_json::to_string_pretty(record).context("Fail to serialize JSON")?;
+    fs::write(&path, content).with_context(|| format!("Fail to write file: `{path}`"))?;
+
+    Ok(path)
+}
+
+async fn write_status_log_at<T: Serialize>(
+    workspace: &Workspace,
+    kind: &str,
+    timestamp_ms: u128,
+    record: &T,
+) -> Result<String> {
+    let firedbg_dir = workspace.get_firedbg_dir();
+    let status_dir = format!("{firedbg_dir}/status");
+    create_dir_all(&status_dir)
+        .await
+        .with_context(|| format!("Fail to create directory: `{status_dir}`"))?;
+
+    let path = format!("{status_dir}/{timestamp_ms}-{kind}.json");
+    to_json_file(&path, record)
+        .await
+        .with_context(|| format!("Fail to create JSON file: `{path}`"))?;
+
+    Ok(path)
+}
+
 fn doctor(
     workspace: &Workspace,
     firedbg_home: Option<String>,
@@ -683,6 +748,8 @@ fn doctor(
         lldb: Option<LldbReport>,
         pythonpath_effective: Option<String>,
         code: Option<CommandReport>,
+        /// macOS only: `DevToolsSecurity -status` (Developer Mode)
+        macos_developer_mode_enabled: Option<bool>,
         deep_checks: Option<DeepReport>,
         hints: Vec<String>,
     }
@@ -808,6 +875,9 @@ fn doctor(
     let mut firedbg_lib: Option<FiredbgLibReport> = None;
     let mut debugger_spawn: Option<SpawnReport> = None;
 
+    // Used for both reporting and the debugger spawn check.
+    let lldb_paths = detect_lldb_paths();
+
     if let Some(home) = home.as_ref() {
         let home = home.trim_end_matches('/');
         for bin in ["firedbg", "firedbg-debugger", "firedbg-indexer"] {
@@ -821,7 +891,7 @@ fn doctor(
 
         installed.insert("firedbg-lib".to_string(), firedbg_lib_exists);
         firedbg_lib = Some(FiredbgLibReport {
-            path: firedbg_lib_path_str,
+            path: firedbg_lib_path_str.clone(),
             exists: firedbg_lib_exists,
             has_lib_dir: firedbg_lib_has_lib_dir,
         });
@@ -838,9 +908,30 @@ fn doctor(
 
         // Lightweight runtime check: can we execute the debugger binary at all?
         // This does NOT attach to any process; it only runs `--help`.
+        // Important: `firedbg-debugger` needs liblldb at runtime, so we run this with the same
+        // env vars we use for real runs (otherwise it can be a false negative).
         let debugger_path = format!("{home}/firedbg-debugger");
         if Path::new(&debugger_path).is_file() {
-            match ProcessCommand::new(&debugger_path).arg("--help").output() {
+            let mut cmd = ProcessCommand::new(&debugger_path);
+            cmd.arg("--help");
+
+            if firedbg_lib_has_lib_dir {
+                let lib_path = format!("{firedbg_lib_path_str}/lib");
+                if cfg!(target_os = "linux") {
+                    cmd.env("LD_LIBRARY_PATH", lib_path);
+                } else if cfg!(target_os = "macos") {
+                    cmd.env("DYLD_FALLBACK_LIBRARY_PATH", lib_path);
+                }
+            }
+
+            if let Some(paths) = &lldb_paths {
+                if let Some(debugserver) = &paths.debugserver {
+                    cmd.env("LLDB_DEBUGSERVER_PATH", debugserver);
+                }
+                cmd.env("PYTHONPATH", paths.python_dir.display().to_string());
+            }
+
+            match cmd.output() {
                 Ok(output) => {
                     let ok = output.status.success();
                     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -882,11 +973,19 @@ fn doctor(
         );
     }
 
-    let lldb = detect_lldb_paths().map(|p| LldbReport {
+    let lldb = lldb_paths.map(|p| LldbReport {
         binary: p.binary,
         python_dir: p.python_dir.display().to_string(),
         debugserver: p.debugserver,
     });
+
+    let macos_developer_mode_enabled = detect_macos_developer_mode_enabled();
+
+    if macos_developer_mode_enabled == Some(false) {
+        hints.push(
+            "macOS Developer Mode is disabled (DevToolsSecurity). Enable Developer Mode in System Settings → Privacy & Security → Developer Mode (may require reboot), or run `sudo /usr/sbin/DevToolsSecurity -enable`.".to_string(),
+        );
+    }
 
     let pythonpath_effective = lldb.as_ref().map(|paths| {
         match env::var_os("PYTHONPATH") {
@@ -974,8 +1073,8 @@ fn doctor(
     };
 
     let report = DoctorReport {
-        workspace_root: workspace.root_dir.clone(),
-        workspace_firedbg_target_dir: workspace_firedbg_target_dir.clone(),
+        workspace_root: workspace.root_dir.to_string(),
+        workspace_firedbg_target_dir,
         workspace_firedbg_target_writable,
         workspace_firedbg_target_writable_error,
         default_output_example,
@@ -990,17 +1089,25 @@ fn doctor(
         lldb,
         pythonpath_effective,
         code: Some(code),
+        macos_developer_mode_enabled,
         deep_checks,
         hints,
     };
 
+    let ts = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+
+    // Best-effort: do not fail doctor if we can't write the status log.
+    let _ = write_status_log_at_sync(workspace, "doctor", ts, &report);
+
     if json_format {
-        println!("{}", serde_json::to_string_pretty(&report)?);
+        println!("{}", serde_json::json!(report));
         return Ok(());
     }
 
-    console::status("Workspace", &report.workspace_root);
-    console::status("Output dir", &report.workspace_firedbg_target_dir);
+    // Human-readable output
     if report.workspace_firedbg_target_writable {
         console::status("Output dir", "writable");
     } else {
@@ -1091,6 +1198,10 @@ fn doctor(
         } else {
             console::warn("code", "not found (VS Code CLI)");
         }
+    }
+
+    if report.macos_developer_mode_enabled == Some(false) {
+        console::warn("macOS", "Developer Mode is disabled");
     }
 
     if !report.hints.is_empty() {
@@ -1258,6 +1369,21 @@ async fn run_debugger(
         "{workspace_output_dir}/{name}-{timestamp}.firedbg.ss"
     ));
 
+    // SeaStreamer file backend uses create-only semantics; do not silently reuse an existing file,
+    // because it would mix multiple runs into one stream.
+    let output_path = Path::new(&output);
+    if output_path.exists() {
+        if output_path.is_dir() {
+            anyhow::bail!("Output path is a directory: `{}`", output_path.display());
+        }
+        anyhow::bail!(
+            "Output file already exists: `{}`\n\nRemove it or choose a new output path (default output names include a timestamp to avoid collisions).",
+            output_path.display()
+        );
+    }
+
+    let mut firedbg_lib_debugserver: Option<String> = None;
+
     let mut command = if env::var("CARGO_PKG_NAME").is_ok() {
         let mut command = std::process::Command::new("cargo");
         command
@@ -1269,12 +1395,37 @@ async fn run_debugger(
         let home = firedbg_home.unwrap_or(cargo_bin()?);
         let home = home.trim_end_matches('/');
         let mut command = std::process::Command::new(format!("{home}/firedbg-debugger"));
-        let lib_path = format!("{home}/firedbg-lib/lib");
+
+        // Prefer the bundled CodeLLDB runtime assets via firedbg-lib.
+        let firedbg_lib_root = format!("{home}/firedbg-lib");
+        let lib_path = format!("{firedbg_lib_root}/lib");
         if cfg!(target_os = "linux") {
             command.env("LD_LIBRARY_PATH", lib_path);
         } else if cfg!(target_os = "macos") {
             command.env("DYLD_FALLBACK_LIBRARY_PATH", lib_path);
         }
+
+        // Record a debugserver/lldb-server bundled in firedbg-lib, to be used as a fallback.
+        // On macOS, CodeLLDB typically ships `debugserver`.
+        let candidates = if cfg!(target_os = "macos") {
+            [
+                format!("{firedbg_lib_root}/bin/debugserver"),
+                format!("{firedbg_lib_root}/bin/lldb-server"),
+            ]
+        } else {
+            [
+                format!("{firedbg_lib_root}/bin/lldb-server"),
+                format!("{firedbg_lib_root}/bin/debugserver"),
+            ]
+        };
+
+        for candidate in candidates {
+            if Path::new(&candidate).is_file() {
+                firedbg_lib_debugserver = Some(candidate);
+                break;
+            }
+        }
+
         command
     };
 
@@ -1286,10 +1437,16 @@ async fn run_debugger(
         );
 
         if let Some(debugserver) = &paths.debugserver {
-            log::info!("Using lldb-server `{debugserver}`");
+            log::info!("Using debugserver/lldb-server `{debugserver}`");
+            command.env("LLDB_DEBUGSERVER_PATH", debugserver);
+        } else if let Some(debugserver) = firedbg_lib_debugserver.as_deref() {
+            log::info!("Using debugserver from firedbg-lib `{debugserver}`");
             command.env("LLDB_DEBUGSERVER_PATH", debugserver);
         } else {
-            log::warn!("No lldb-server found alongside `{}`", paths.binary);
+            log::warn!(
+                "No debugserver/lldb-server found (checked alongside `{}` and in firedbg-lib); LLDB may fail to launch",
+                paths.binary
+            );
         }
 
         let python_path = match env::var_os("PYTHONPATH") {
@@ -1304,7 +1461,7 @@ async fn run_debugger(
     } else {
         log::warn!("Unable to detect LLDB runtime paths; using system defaults");
     }
-    command.arg(sub_command).arg(executable);
+    command.arg(sub_command).arg(&executable);
 
     if let Some(testcase) = testcase {
         command.arg(testcase);
@@ -1314,7 +1471,7 @@ async fn run_debugger(
         .arg("--workspace-root")
         .arg(workspace_root_dir)
         .arg("--output")
-        .arg(output)
+        .arg(&output)
         .arg("--package-name")
         .arg(package_name);
 
@@ -1336,9 +1493,102 @@ async fn run_debugger(
 
     log::info!("debugger_command\n{:?}", command);
 
+    #[derive(Debug, Serialize)]
+    struct LldbPathsLog {
+        binary: String,
+        python_dir: String,
+        debugserver: Option<String>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct RunStatusLog {
+        timestamp_ms: u128,
+        workspace_root: String,
+        sub_command: String,
+        name: String,
+        package_name: String,
+        executable: String,
+        output: String,
+        command: String,
+        env: BTreeMap<String, String>,
+        lldb: Option<LldbPathsLog>,
+        macos_developer_mode_enabled: Option<bool>,
+    }
+
+    let mut env_map: BTreeMap<String, String> = BTreeMap::new();
+    for (k, v) in command.get_envs() {
+        let Some(v) = v else { continue };
+        let Some(k) = k.to_str() else { continue };
+        let Some(v) = v.to_str() else { continue };
+
+        // Keep this list tight to avoid dumping lots of unrelated env.
+        if matches!(
+            k,
+            "DYLD_FALLBACK_LIBRARY_PATH"
+                | "LD_LIBRARY_PATH"
+                | "LLDB_DEBUGSERVER_PATH"
+                | "PYTHONPATH"
+                | "FIREDBG_RUST_CONFIG"
+        ) {
+            env_map.insert(k.to_string(), v.to_string());
+        }
+    }
+
+    let lldb_log = lldb_paths.as_ref().map(|p| LldbPathsLog {
+        binary: p.binary.clone(),
+        python_dir: p.python_dir.display().to_string(),
+        debugserver: p.debugserver.clone(),
+    });
+
+    let pre = RunStatusLog {
+        timestamp_ms: timestamp,
+        workspace_root: workspace.root_dir.to_string(),
+        sub_command: sub_command.to_string(),
+        name: name.to_string(),
+        package_name: package_name.to_string(),
+        executable: executable.clone(),
+        output: output.clone(),
+        command: format!("{:?}", command),
+        env: env_map,
+        lldb: lldb_log,
+        macos_developer_mode_enabled: detect_macos_developer_mode_enabled(),
+    };
+
+    // Best-effort: do not fail a run if we can't write the status log.
+    if let Err(e) =
+        write_status_log_at(workspace, &format!("{sub_command}-pre"), timestamp, &pre).await
+    {
+        log::warn!("status_log_write_failed: {e}");
+    }
+
     console::status("Running", &format!("`{:?}`", command));
 
-    command.spawn()?.wait()?;
+    let status = command.spawn()?.wait()?;
+
+    #[derive(Debug, Serialize)]
+    struct RunResultLog {
+        timestamp_ms: u128,
+        ok: bool,
+        status_code: Option<i32>,
+        status: String,
+    }
+
+    let post = RunResultLog {
+        timestamp_ms: timestamp,
+        ok: status.success(),
+        status_code: status.code(),
+        status: status.to_string(),
+    };
+
+    if let Err(e) =
+        write_status_log_at(workspace, &format!("{sub_command}-post"), timestamp, &post).await
+    {
+        log::warn!("status_log_write_failed: {e}");
+    }
+
+    if !status.success() {
+        anyhow::bail!("debugger exited with status {status}");
+    }
 
     Ok(())
 }
@@ -1589,13 +1839,25 @@ fn detect_lldb_paths() -> Option<LldbPaths> {
         }
 
         let python_dir = PathBuf::from(&python_dir);
-        let bin_dir = python_dir
-            .ancestors()
-            .nth(3)
-            .map(|prefix| prefix.join("bin"))
-            .unwrap_or_else(|| python_dir.join("../../../bin"));
-        let bin_dir = fs::canonicalize(&bin_dir).unwrap_or(bin_dir);
-        let debugserver = find_debugserver(&bin_dir);
+
+        // Xcode's LLDB layout is:
+        //   .../LLDB.framework/.../Resources/Python  (lldb -P)
+        // and debugserver is:
+        //   .../LLDB.framework/.../Resources/debugserver
+        let debugserver = if python_dir.ends_with("Resources/Python") {
+            let resources_dir = python_dir
+                .parent()
+                .expect("Resources/Python has a parent");
+            find_debugserver(resources_dir)
+        } else {
+            let bin_dir = python_dir
+                .ancestors()
+                .nth(3)
+                .map(|prefix| prefix.join("bin"))
+                .unwrap_or_else(|| python_dir.join("../../../bin"));
+            let bin_dir = fs::canonicalize(&bin_dir).unwrap_or(bin_dir);
+            find_debugserver(&bin_dir)
+        };
 
         return Some(LldbPaths {
             binary,
@@ -1617,7 +1879,7 @@ fn find_debugserver(bin_dir: &Path) -> Option<String> {
                 && path
                     .file_name()
                     .and_then(OsStr::to_str)
-                    .map(|name| name.starts_with("lldb-server"))
+                    .map(|name| name.starts_with("lldb-server") || name == "debugserver")
                     .unwrap_or(false)
         })
         .collect();

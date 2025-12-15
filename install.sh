@@ -285,17 +285,38 @@ function install_from_source
     ensure mkdir -p "$cache_dir"
 
     typeset codelldb_version="v1.10.0"
-    typeset vsix_arch vsix_name cache_root cache_vsix cache_lldb tmpdir
+    typeset vsix_arch vsix_name cache_root cache_vsix cache_lldb tmpdir rustc_host
 
-    case "$(uname -m)" in
-        x86_64|x86-64|x64|amd64)
+    # Prefer rustc host triple when selecting the CodeLLDB bundle.
+    # This avoids mismatches when the user is running under Rosetta / cross-targeting.
+    rustc_host=""
+    while IFS= read -r line; do
+        if [[ "$line" == host:* ]]; then
+            rustc_host=${line#host: }
+            break
+        fi
+    done < <(rustc -vV 2>/dev/null || true)
+
+    case "$rustc_host" in
+        x86_64-apple-darwin)
             vsix_arch="x86_64-darwin"
             ;;
-        arm64|aarch64)
+        aarch64-apple-darwin|arm64-apple-darwin)
             vsix_arch="aarch64-darwin"
             ;;
         *)
-            err "unsupported CPU architecture for source install: $(uname -m)"
+            # Fallback: use runtime CPU
+            case "$(uname -m)" in
+                x86_64|x86-64|x64|amd64)
+                    vsix_arch="x86_64-darwin"
+                    ;;
+                arm64|aarch64)
+                    vsix_arch="aarch64-darwin"
+                    ;;
+                *)
+                    err "unsupported CPU architecture for source install: $(uname -m)"
+                    ;;
+            esac
             ;;
     esac
 

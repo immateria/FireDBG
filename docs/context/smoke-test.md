@@ -34,10 +34,11 @@ Run the listed binary:
 firedbg run app
 ```
 
-Or specify an explicit output path:
+Or specify an explicit output path (must not already exist):
 
 ```sh
-firedbg run app --output ./firedbg/target/app.firedbg.ss
+# Tip: include a timestamp (or delete the old file before re-running)
+firedbg run app --output ./firedbg/target/app-$(date +%s).firedbg.ss
 ```
 
 ## 4) List runs + index
